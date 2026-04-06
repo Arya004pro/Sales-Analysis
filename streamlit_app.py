@@ -80,9 +80,21 @@ def _fetch_suggestions(api_base: str, force_refresh: bool = False) -> dict:
     return r.json()
 
 
+def _fetch_discovery(api_base: str, force_refresh: bool = False) -> dict:
+    """Call GET /discover (optionally with ?refresh=1)."""
+    url = f"{api_base.rstrip('/')}/discover"
+    params = {"refresh": "1"} if force_refresh else {}
+    r = requests.get(url, params=params, timeout=30)
+    r.raise_for_status()
+    return r.json()
+
+
 _SUGS_KEY = "_sug_list"
 _SUGS_AT_KEY = "_sug_generated_at"
 _SUGS_CACHED = "_sug_from_cache"
+_DISCOVERY_KEY = "_discovery_findings"
+_DISCOVERY_AT = "_discovery_generated_at"
+_DISCOVERY_CACHED = "_discovery_cached"
 
 
 def render_suggestions(api_base: str) -> str | None:
@@ -155,6 +167,67 @@ def render_suggestions(api_base: str) -> str | None:
             pass
 
     return chosen
+
+
+def render_discovery(api_base: str) -> None:
+    col_lbl, col_refresh = st.columns([5, 1])
+    with col_lbl:
+        st.markdown('<div class="sug-header">What\'s interesting?</div>', unsafe_allow_html=True)
+    with col_refresh:
+        refresh_clicked = st.button(
+            "Refresh",
+            key="_discover_refresh_btn",
+            help="Rescan all tables for surprising patterns",
+            use_container_width=True,
+            type="secondary",
+        )
+
+    run_clicked = st.button(
+        "Surprise me",
+        key="_discover_run_btn",
+        use_container_width=True,
+        type="primary",
+    )
+
+    if _DISCOVERY_KEY not in st.session_state:
+        try:
+            data = _fetch_discovery(api_base, force_refresh=False)
+            st.session_state[_DISCOVERY_KEY] = data.get("findings", [])
+            st.session_state[_DISCOVERY_AT] = data.get("generated_at", "")
+            st.session_state[_DISCOVERY_CACHED] = bool(data.get("cached", False))
+        except Exception:
+            st.session_state[_DISCOVERY_KEY] = []
+            st.session_state[_DISCOVERY_AT] = ""
+            st.session_state[_DISCOVERY_CACHED] = False
+
+    if run_clicked or refresh_clicked:
+        with st.spinner("Scanning for surprising findings..."):
+            try:
+                data = _fetch_discovery(api_base, force_refresh=True)
+                st.session_state[_DISCOVERY_KEY] = data.get("findings", [])
+                st.session_state[_DISCOVERY_AT] = data.get("generated_at", "")
+                st.session_state[_DISCOVERY_CACHED] = bool(data.get("cached", False))
+            except Exception as exc:
+                st.warning(f"Auto-discovery failed: {exc}")
+
+    findings = st.session_state.get(_DISCOVERY_KEY, []) or []
+    generated_at = st.session_state.get(_DISCOVERY_AT, "")
+    is_cached = st.session_state.get(_DISCOVERY_CACHED, False)
+
+    if generated_at:
+        cache_note = "cached" if is_cached else "fresh"
+        st.caption(f"Generated ({cache_note}): {generated_at}")
+
+    if not findings:
+        st.caption("No high-confidence findings yet.")
+        return
+
+    lines = []
+    for i, f in enumerate(findings[:5], start=1):
+        txt = str(f.get("text") or "").strip()
+        if txt:
+            lines.append(f"{i}. {txt}")
+    st.markdown("\n".join(lines))
 
 
 def _fetch_business_report(api_base: str, period: str = "weekly") -> dict:
@@ -1175,6 +1248,8 @@ with left:
                         # Reset conversational context on schema change.
                         st.session_state.conversation_session_id = None
                         st.session_state.pending_session = None
+                        for k in (_DISCOVERY_KEY, _DISCOVERY_AT, _DISCOVERY_CACHED):
+                            st.session_state.pop(k, None)
                         skipped = result.get("skipped_files") or []
                         if skipped:
                             for s in skipped:
@@ -1193,6 +1268,9 @@ with left:
     if chosen:
         st.session_state["query_input_field"] = chosen
         _on_enter()
+
+    st.divider()
+    render_discovery(api_base=API)
 
     #  Query input
     st.markdown('<div class="section-lbl">Ask a question</div>', unsafe_allow_html=True)
