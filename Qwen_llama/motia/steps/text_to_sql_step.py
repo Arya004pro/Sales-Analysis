@@ -190,6 +190,10 @@ def _render_filter_clause(filters: dict) -> str:
         return ""
     lines = []
     for col, val in filters.items():
+        # Ignore structured filters (dict/list) here; date ranges and complex
+        # conditions are handled by dedicated intent fields/time-range logic.
+        if isinstance(val, (dict, list, tuple, set)):
+            continue
         if isinstance(val, bool):
             lines.append(f"  AND {col} = {1 if val else 0}")
         elif isinstance(val, int):

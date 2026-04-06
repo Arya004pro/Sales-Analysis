@@ -840,6 +840,7 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     #  FORECAST 
     elif qt == "forecast":
         fr = parsed.get("_forecast_result", {})
+        goal_result = parsed.get("_goal_tracking_result") if isinstance(parsed.get("_goal_tracking_result"), dict) else None
         hist_labels = fr.get("hist_labels", [])
         hist_values = fr.get("hist_values", [])
         fc_labels   = fr.get("fc_labels", [])
@@ -852,34 +853,87 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
         conf        = fr.get("confidence_pct", 80.0)
         periods     = fr.get("periods", 3)
 
-        if start_date and end_date:
-            training_str = f"training: {start_date} to {end_date}"
-        elif _period_phrase:
-            training_str = f"training: {_period_phrase.replace('in ', '')}"
+        if goal_result:
+            target = float(goal_result.get("target_value") or 0.0)
+            actual_to_date = float(goal_result.get("actual_to_date") or 0.0)
+            projected_total = float(goal_result.get("projected_total") or 0.0)
+            projected_remaining = float(goal_result.get("projected_remaining") or 0.0)
+            gap = float(goal_result.get("gap") or 0.0)
+            remaining_periods = int(goal_result.get("remaining_periods") or 0)
+            required_per_period = float(goal_result.get("required_per_period") or 0.0)
+            forecast_avg_per_period = float(goal_result.get("forecast_avg_per_period") or 0.0)
+            pace_ratio = float(goal_result.get("pace_ratio") or 0.0)
+            on_track = bool(goal_result.get("on_track"))
+            horizon_label = str(goal_result.get("horizon_label") or "target horizon")
+            status = str(goal_result.get("status") or "ok")
+
+            status_text = "ON TRACK" if on_track else "OFF TRACK"
+            lines = [
+                f"Goal tracking ({horizon_label}): {status_text}",
+                "",
+                f"Metric: {mlabel}",
+                f"Target: {_fmt_indian(target, p)}",
+                f"Actual to date: {_fmt_indian(actual_to_date, p)}",
+                f"Projected remaining {bucket}(s): {_fmt_indian(projected_remaining, p)}",
+                f"Projected by {horizon_label}: {_fmt_indian(projected_total, p)}",
+            ]
+            if gap >= 0:
+                lines.append(f"Projected surplus: {_fmt_indian(gap, p)}")
+            else:
+                lines.append(f"Projected shortfall: {_fmt_indian(abs(gap), p)}")
+
+            if remaining_periods > 0:
+                lines.append(f"Remaining {bucket}(s): {remaining_periods}")
+                lines.append(f"Required average per remaining {bucket}: {_fmt_indian(required_per_period, p)}")
+                lines.append(f"Forecast average per remaining {bucket}: {_fmt_indian(forecast_avg_per_period, p)}")
+                lines.append(f"Pace vs required: {pace_ratio * 100:.1f}%")
+
+            if status == "insufficient_history":
+                lines.append("Note: Forecast confidence is limited due to very few historical points.")
+
+            if fc_labels:
+                lines.append("")
+                lines.append("Projected values:")
+                for lbl, val, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper):
+                    lines.append(f"  {lbl:<14}  {_fmt_indian(val, p):>16}  [{_fmt_indian(lo, p)} - {_fmt_indian(hi, p)}]")
+
+            items = [
+                {"label": "Target", "value": _fmt_indian(target, p), "raw_value": target},
+                {"label": "Actual to date", "value": _fmt_indian(actual_to_date, p), "raw_value": actual_to_date},
+                {"label": "Projected total", "value": _fmt_indian(projected_total, p), "raw_value": projected_total},
+                {"label": "Gap", "value": _fmt_indian(gap, p), "raw_value": gap},
+            ]
+            formatted_text = "\n".join(lines) + _token_summary(token_usage, token_totals)
+            chart_config = (qs or {}).get("chart_config") or input_data.get("_chart_config")
         else:
-            training_str = "training: selected historical period"
-        header = f"{mlabel} Forecast - next {periods} {bucket}(s) ({training_str})"
+            if start_date and end_date:
+                training_str = f"training: {start_date} to {end_date}"
+            elif _period_phrase:
+                training_str = f"training: {_period_phrase.replace('in ', '')}"
+            else:
+                training_str = "training: selected historical period"
+            header = f"{mlabel} Forecast - next {periods} {bucket}(s) ({training_str})"
 
-        lines = [header, ""]
-        lines.append(f"Historical points: {len(hist_labels)}")
-        lines.append(f"Method: {str(method).capitalize()}, Trend: {'UP' if float(trend_pct or 0) >= 0 else 'DOWN'} {abs(float(trend_pct or 0)):.1f}%/period")
-        lines.append(f"Confidence band: {int(float(conf or 80))}%  |  RMSE: {_fmt_indian(rmse, p)}")
-        lines.append("")
-        lines.append("Projected values:")
-        for lbl, val, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper):
-            lines.append(f"  {lbl:<14}  {_fmt_indian(val, p):>16}  [{_fmt_indian(lo, p)} - {_fmt_indian(hi, p)}]")
+            lines = [header, ""]
+            lines.append(f"Historical points: {len(hist_labels)}")
+            lines.append(f"Method: {str(method).capitalize()}, Trend: {'UP' if float(trend_pct or 0) >= 0 else 'DOWN'} {abs(float(trend_pct or 0)):.1f}%/period")
+            lines.append(f"Confidence band: {int(float(conf or 80))}%  |  RMSE: {_fmt_indian(rmse, p)}")
+            lines.append("")
+            lines.append("Projected values:")
+            for lbl, val, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper):
+                lines.append(f"  {lbl:<14}  {_fmt_indian(val, p):>16}  [{_fmt_indian(lo, p)} - {_fmt_indian(hi, p)}]")
 
-        items = [{
-            "period": lbl,
-            "value": _fmt_indian(v, p),
-            "raw_value": v,
-            "lower": _fmt_indian(lo, p),
-            "upper": _fmt_indian(hi, p),
-            "is_forecast": True,
-        } for lbl, v, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper)]
+            items = [{
+                "period": lbl,
+                "value": _fmt_indian(v, p),
+                "raw_value": v,
+                "lower": _fmt_indian(lo, p),
+                "upper": _fmt_indian(hi, p),
+                "is_forecast": True,
+            } for lbl, v, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper)]
 
-        formatted_text = "\n".join(lines) + _token_summary(token_usage, token_totals)
-        chart_config = (qs or {}).get("chart_config") or input_data.get("_chart_config")
+            formatted_text = "\n".join(lines) + _token_summary(token_usage, token_totals)
+            chart_config = (qs or {}).get("chart_config") or input_data.get("_chart_config")
 
     #  RANKED WITHIN TIME BUCKET 
     elif is_rank_within_time:

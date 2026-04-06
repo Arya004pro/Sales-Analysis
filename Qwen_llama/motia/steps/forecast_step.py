@@ -492,6 +492,11 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     method      = parsed.get("forecast_method", "auto")
     periods     = int(parsed.get("forecast_periods") or 3)
     conf_pct    = float(parsed.get("forecast_confidence", 80.0))
+    goal_cfg    = parsed.get("_goal_tracking") if isinstance(parsed.get("_goal_tracking"), dict) else {}
+    try:
+        goal_target = float(goal_cfg.get("target_value")) if goal_cfg else None
+    except Exception:
+        goal_target = None
 
     ctx.logger.info("🔮 Forecasting", {
         "queryId": query_id, "method": method,
@@ -504,10 +509,35 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
 
     if len(hist_values) < 2:
         ctx.logger.warn("⚠️ Insufficient data for forecast (<2 points)", {"queryId": query_id})
+        goal_result = None
+        if goal_cfg and goal_target and hist_values:
+            actual_to_date = float(sum(hist_values))
+            projected_total = actual_to_date
+            gap = projected_total - float(goal_target)
+            goal_result = {
+                "mode": str(goal_cfg.get("mode") or "end_of_month"),
+                "horizon_label": str(goal_cfg.get("horizon_label") or "target horizon"),
+                "target_value": float(goal_target),
+                "actual_to_date": actual_to_date,
+                "projected_remaining": 0.0,
+                "projected_total": projected_total,
+                "gap": gap,
+                "on_track": bool(gap >= 0),
+                "remaining_periods": int(goal_cfg.get("remaining_periods") or 0),
+                "required_per_period": 0.0,
+                "forecast_avg_per_period": 0.0,
+                "pace_ratio": 1.0 if gap >= 0 else 0.0,
+                "status": "insufficient_history",
+            }
+
+        pass_through_parsed = parsed
+        if goal_result:
+            pass_through_parsed = {**parsed, "_goal_tracking_result": goal_result}
+
         # Pass through to anomaly detection unchanged
         await ctx.enqueue({
             "topic": "query::detect.anomalies",
-            "data":  {**input_data, "forecast_skipped": True},
+            "data":  {**input_data, "parsed": pass_through_parsed, "forecast_skipped": True},
         })
         return
 
@@ -556,6 +586,41 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
         "rmse":      result.rmse,
         "trend_pct": result.trend_pct,
     })
+
+    goal_result = None
+    if goal_cfg and goal_target and goal_target > 0:
+        actual_to_date = float(sum(hist_values))
+        projected_remaining = float(sum(result.forecast or []))
+        projected_total = actual_to_date + projected_remaining
+        gap = projected_total - float(goal_target)
+        remaining_periods = int(goal_cfg.get("remaining_periods") or periods or 0)
+        required_per_period = (
+            max(float(goal_target) - actual_to_date, 0.0) / remaining_periods
+            if remaining_periods > 0 else 0.0
+        )
+        forecast_avg_per_period = (
+            projected_remaining / max(len(result.forecast or []), 1)
+            if result.forecast else 0.0
+        )
+        pace_ratio = (
+            (forecast_avg_per_period / required_per_period)
+            if required_per_period > 0 else (1.0 if gap >= 0 else 0.0)
+        )
+        goal_result = {
+            "mode": str(goal_cfg.get("mode") or "end_of_month"),
+            "horizon_label": str(goal_cfg.get("horizon_label") or "target horizon"),
+            "target_value": float(goal_target),
+            "actual_to_date": actual_to_date,
+            "projected_remaining": projected_remaining,
+            "projected_total": projected_total,
+            "gap": gap,
+            "on_track": bool(gap >= 0),
+            "remaining_periods": remaining_periods,
+            "required_per_period": required_per_period,
+            "forecast_avg_per_period": forecast_avg_per_period,
+            "pace_ratio": pace_ratio,
+            "status": "ok",
+        }
 
     # ── Build combined results (historical + forecast rows) ───────────────────
     forecast_rows = []
@@ -608,6 +673,8 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             "fc_upper":       [round(v, 2) for v in result.upper_bound],
         },
     }
+    if goal_result:
+        enriched_parsed["_goal_tracking_result"] = goal_result
 
     # Update state with chart config
     qs = await ctx.state.get("queries", query_id)
