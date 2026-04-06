@@ -20,6 +20,7 @@ from pathlib import Path
 # ── Import ER diagram renderer ────────────────────────────────────────────────
 try:
     from schema_diagram import render_schema_diagram
+
     _HAS_DIAGRAM = True
 except ImportError:
     _HAS_DIAGRAM = False
@@ -117,7 +118,9 @@ def render_suggestions(api_base: str) -> str | None:
 
     col_lbl, col_refresh = st.columns([5, 1])
     with col_lbl:
-        st.markdown('<div class="sug-header">Suggested questions</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sug-header">Suggested questions</div>', unsafe_allow_html=True
+        )
     with col_refresh:
         refresh_clicked = st.button(
             "Refresh",
@@ -172,7 +175,9 @@ def render_suggestions(api_base: str) -> str | None:
 def render_discovery(api_base: str) -> None:
     col_lbl, col_refresh = st.columns([5, 1])
     with col_lbl:
-        st.markdown('<div class="sug-header">What\'s interesting?</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sug-header">What\'s interesting?</div>', unsafe_allow_html=True
+        )
     with col_refresh:
         refresh_clicked = st.button(
             "Refresh",
@@ -254,7 +259,9 @@ _DIGEST_CACHE_KEY = "_digest_cache"
 _DIGEST_CACHE_TS_KEY = "_digest_cache_ts"
 
 
-def _load_business_report(api_base: str, period: str, force: bool = False) -> tuple[dict | None, str | None]:
+def _load_business_report(
+    api_base: str, period: str, force: bool = False
+) -> tuple[dict | None, str | None]:
     cache = st.session_state.setdefault(_DIGEST_CACHE_KEY, {})
     ts_map = st.session_state.setdefault(_DIGEST_CACHE_TS_KEY, {})
     now_ts = time.time()
@@ -278,8 +285,12 @@ def render_business_digest(api_base: str) -> None:
         label_visibility="collapsed",
     )
     run_col, refresh_col = st.columns([1, 1])
-    run_now = run_col.button("Run now", key="_digest_run_now", use_container_width=True, type="secondary")
-    refresh = refresh_col.button("Refresh", key="_digest_refresh", use_container_width=True, type="secondary")
+    run_now = run_col.button(
+        "Run now", key="_digest_run_now", use_container_width=True, type="secondary"
+    )
+    refresh = refresh_col.button(
+        "Refresh", key="_digest_refresh", use_container_width=True, type="secondary"
+    )
 
     if run_now:
         try:
@@ -323,7 +334,9 @@ def render_business_digest(api_base: str) -> None:
             "chart_config": None,
             "token_totals": {},
         }
-        pdf_bytes = _build_export_pdf(digest_state, f"{period.title()} Business Summary")
+        pdf_bytes = _build_export_pdf(
+            digest_state, f"{period.title()} Business Summary"
+        )
         st.download_button(
             label="Download PDF",
             data=pdf_bytes,
@@ -336,33 +349,33 @@ def render_business_digest(api_base: str) -> None:
         pass
 
 
-API           = "http://127.0.0.1:3121"
+API = "http://127.0.0.1:3121"
 POLL_INTERVAL = 0.7
-SHARED_UPLOAD_DIR    = Path("Qwen_llama/motia/data/uploads")
+SHARED_UPLOAD_DIR = Path("Qwen_llama/motia/data/uploads")
 CONTAINER_UPLOAD_DIR = "/app/motia/data/uploads"
 
 STEPS = [
-    {"label": "Query Received",    "sub": "REST API intake",                "icon": "IN"},
-    {"label": "Intent Parsing",    "sub": "Understand metric and scope",    "icon": "IP"},
-    {"label": "Clarification Gate","sub": "Resolve missing inputs",         "icon": "CL"},
-    {"label": "SQL Planning",      "sub": "Generate safe DuckDB SQL",       "icon": "SQL"},
-    {"label": "Query Execution",   "sub": "Run against dataset",            "icon": "DB"},
-    {"label": "Analysis",          "sub": "Forecast + anomaly detection",   "icon": "AN"},
-    {"label": "Response Assembly", "sub": "Insights + formatting",          "icon": "RS"},
+    {"label": "Query Received", "sub": "REST API intake", "icon": "IN"},
+    {"label": "Intent Parsing", "sub": "Understand metric and scope", "icon": "IP"},
+    {"label": "Clarification Gate", "sub": "Resolve missing inputs", "icon": "CL"},
+    {"label": "SQL Planning", "sub": "Generate safe DuckDB SQL", "icon": "SQL"},
+    {"label": "Query Execution", "sub": "Run against dataset", "icon": "DB"},
+    {"label": "Analysis", "sub": "Forecast + anomaly detection", "icon": "AN"},
+    {"label": "Response Assembly", "sub": "Insights + formatting", "icon": "RS"},
 ]
 
 STATUS_MAP = {
-    "received":            0,
-    "intent_parsed":       1,
-    "ambiguity_checked":   2,
+    "received": 0,
+    "intent_parsed": 1,
+    "ambiguity_checked": 2,
     "needs_clarification": 2,
-    "sql_generated":       3,
-    "executed":            4,
-    "forecast_computed":   5,
-    "anomaly_detected":    5,
-    "insights_generated":  6,
-    "completed":           6,
-    "error":               6,
+    "sql_generated": 3,
+    "executed": 4,
+    "forecast_computed": 5,
+    "anomaly_detected": 5,
+    "insights_generated": 6,
+    "completed": 6,
+    "error": 6,
 }
 
 STEP_STATUS_OPTIONS = {
@@ -376,18 +389,18 @@ STEP_STATUS_OPTIONS = {
 }
 
 for key, default in {
-    "query_id":        None,
-    "polling":         False,
+    "query_id": None,
+    "polling": False,
     "conversation_session_id": None,
     "pending_session": None,
-    "final_state":     None,
-    "current_status":  "",
-    "history":         [],
-    "step_times":      {},
-    "poll_start":      None,
-    "last_completed":  -1,
-    "bookmarks":       [],
-    "bm_loaded":       False,
+    "final_state": None,
+    "current_status": "",
+    "history": [],
+    "step_times": {},
+    "poll_start": None,
+    "last_completed": -1,
+    "bookmarks": [],
+    "bm_loaded": False,
     "schema_refresh_nonce": 0,
     "schema_last_refresh": "",
     "_digest_period": "weekly",
@@ -400,16 +413,15 @@ def _on_enter():
     val = st.session_state.get("query_input_field", "").strip()
     if not val or st.session_state.polling:
         return
-    st.session_state.polling        = True
-    st.session_state.final_state    = None
+    st.session_state.polling = True
+    st.session_state.final_state = None
     st.session_state.current_status = ""
-    st.session_state.step_times     = {}
+    st.session_state.step_times = {}
     st.session_state.last_completed = -1
-    st.session_state.poll_start     = time.time()
+    st.session_state.poll_start = time.time()
     try:
         session_id = (
-            st.session_state.pending_session
-            or st.session_state.conversation_session_id
+            st.session_state.pending_session or st.session_state.conversation_session_id
         )
         resp = submit_query(val, session_id=session_id)
         st.session_state.query_id = resp["queryId"]
@@ -429,7 +441,8 @@ st.set_page_config(
     layout="wide",
 )
 
-st.markdown("""
+st.markdown(
+    """
 <style>
 .step-row { display:flex; align-items:flex-start; margin:8px 0 20px; }
 .step-wrap { flex:1; display:flex; flex-direction:column; align-items:center; position:relative; }
@@ -503,10 +516,13 @@ st.markdown("""
             border:1px solid rgba(245,158,11,.35); border-radius:10px;
             font-size:10px; font-weight:700; padding:1px 8px; margin-left:6px; }
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True,
+)
 
 
 #  PDF export
+
 
 def _safe_text(v) -> str:
     s = "" if v is None else str(v)
@@ -514,7 +530,12 @@ def _safe_text(v) -> str:
 
 
 def _pretty_col(k: str) -> str:
-    return k.replace("_", " ").replace("period1", "Period 1").replace("period2", "Period 2").title()
+    return (
+        k.replace("_", " ")
+        .replace("period1", "Period 1")
+        .replace("period2", "Period 2")
+        .title()
+    )
 
 
 def _to_num(v):
@@ -526,6 +547,7 @@ def _to_num(v):
 
 def _to_rl_color(s, fallback):
     from reportlab.lib import colors
+
     if not isinstance(s, str):
         return fallback
     s = s.strip()
@@ -548,9 +570,9 @@ def _to_rl_color(s, fallback):
 def _build_pdf_chart(chart_config):
     if not chart_config:
         return None
-    cfg  = chart_config.get("config", {}) or {}
+    cfg = chart_config.get("config", {}) or {}
     data = cfg.get("data", {}) or {}
-    labels   = list(data.get("labels", []) or [])
+    labels = list(data.get("labels", []) or [])
     datasets = list(data.get("datasets", []) or [])
     if not labels or not datasets:
         return None
@@ -566,32 +588,39 @@ def _build_pdf_chart(chart_config):
     from reportlab.graphics.shapes import Drawing
     from reportlab.graphics.charts.barcharts import HorizontalBarChart
     from reportlab.graphics.charts.linecharts import HorizontalLineChart
+
     max_label = max((len(str(x)) for x in labels), default=10)
-    left_pad  = 120 if max_label <= 14 else min(210, 120 + (max_label - 14) * 4)
-    chart_h   = max(180, min(380, 15 * len(labels) + 45))
-    drawing   = Drawing(500, chart_h + 35)
+    left_pad = 120 if max_label <= 14 else min(210, 120 + (max_label - 14) * 4)
+    chart_h = max(180, min(380, 15 * len(labels) + 45))
+    drawing = Drawing(500, chart_h + 35)
     chart_type = str((cfg.get("type") or "")).lower()
-    is_line = ("line" in chart_type) or ("trend" in str((chart_config or {}).get("title", "")).lower())
+    is_line = ("line" in chart_type) or (
+        "trend" in str((chart_config or {}).get("title", "")).lower()
+    )
 
     chart = HorizontalLineChart() if is_line else HorizontalBarChart()
-    chart.x   = left_pad
-    chart.y   = 18
-    chart.width  = 480 - left_pad
+    chart.x = left_pad
+    chart.y = 18
+    chart.width = 480 - left_pad
     chart.height = chart_h
-    chart.data   = tuple(tuple(row) for row in series)
-    display_labels = [str(x) if len(str(x)) <= 28 else f"{str(x)[:25]}..." for x in labels]
+    chart.data = tuple(tuple(row) for row in series)
+    display_labels = [
+        str(x) if len(str(x)) <= 28 else f"{str(x)[:25]}..." for x in labels
+    ]
     if len(display_labels) > 24:
         step = max(2, len(display_labels) // 12)
-        display_labels = [lab if i % step == 0 else "" for i, lab in enumerate(display_labels)]
+        display_labels = [
+            lab if i % step == 0 else "" for i, lab in enumerate(display_labels)
+        ]
     chart.categoryAxis.categoryNames = display_labels
-    chart.categoryAxis.labels.boxAnchor  = "e"
-    chart.categoryAxis.labels.fontSize   = 7 if len(labels) > 12 else 8
-    chart.categoryAxis.labels.dx         = -6
-    chart.categoryAxis.labels.fillColor  = colors.HexColor("#cbd5e1")
-    chart.valueAxis.labels.fontSize      = 8
-    chart.valueAxis.labels.fillColor     = colors.HexColor("#94a3b8")
-    chart.valueAxis.strokeColor          = colors.HexColor("#334155")
-    chart.categoryAxis.strokeColor       = colors.HexColor("#334155")
+    chart.categoryAxis.labels.boxAnchor = "e"
+    chart.categoryAxis.labels.fontSize = 7 if len(labels) > 12 else 8
+    chart.categoryAxis.labels.dx = -6
+    chart.categoryAxis.labels.fillColor = colors.HexColor("#cbd5e1")
+    chart.valueAxis.labels.fontSize = 8
+    chart.valueAxis.labels.fillColor = colors.HexColor("#94a3b8")
+    chart.valueAxis.strokeColor = colors.HexColor("#334155")
+    chart.categoryAxis.strokeColor = colors.HexColor("#334155")
     chart.valueAxis.visibleGrid = True
     chart.valueAxis.gridStrokeColor = colors.HexColor("#1f2937")
 
@@ -623,8 +652,8 @@ def _build_pdf_chart(chart_config):
 def _build_pdf_chart_image(chart_config, max_width_pts):
     if not chart_config:
         return None
-    cfg = (chart_config.get("config") or {})
-    data = (cfg.get("data") or {})
+    cfg = chart_config.get("config") or {}
+    data = cfg.get("data") or {}
     labels = list(data.get("labels", []) or [])
     datasets = list(data.get("datasets", []) or [])
     if not labels or not datasets:
@@ -653,7 +682,9 @@ def _build_pdf_chart_image(chart_config, max_width_pts):
         colors.append(str(c))
 
     chart_type = str((cfg.get("type") or "")).lower()
-    is_line = ("line" in chart_type) or ("trend" in str((chart_config or {}).get("title", "")).lower())
+    is_line = ("line" in chart_type) or (
+        "trend" in str((chart_config or {}).get("title", "")).lower()
+    )
 
     fig_w = max(6.4, min(8.8, float(max_width_pts) / 72.0))
     fig_h = 3.8 if len(labels) <= 36 else 4.4
@@ -665,7 +696,8 @@ def _build_pdf_chart_image(chart_config, max_width_pts):
     if is_line:
         for i, vals in enumerate(series):
             ax.plot(
-                x, vals,
+                x,
+                vals,
                 color=colors[i % len(colors)],
                 linewidth=1.4,
                 marker="o" if len(labels) <= 36 else None,
@@ -726,38 +758,75 @@ def _build_export_pdf(state: dict, user_query: str) -> bytes:
     from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
     from reportlab.lib.units import inch
     from reportlab.platypus import (
-        SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, LongTable,
-        KeepTogether, HRFlowable, CondPageBreak, ListFlowable, ListItem,
+        SimpleDocTemplate,
+        Paragraph,
+        Spacer,
+        Table,
+        TableStyle,
+        LongTable,
+        KeepTogether,
+        HRFlowable,
+        CondPageBreak,
+        ListFlowable,
+        ListItem,
     )
 
     chart_config = state.get("chart_config")
-    items        = state.get("formattedItems", []) or []
-    text_answer  = state.get("formattedText", "") or ""
+    items = state.get("formattedItems", []) or []
+    text_answer = state.get("formattedText", "") or ""
     token_totals = state.get("token_totals", {}) or {}
     generated_at = datetime.now().strftime("%d %B %Y, %H:%M")
-    summary      = _safe_text(text_answer.split(" Token Usage")[0].strip())
-    query        = _safe_text(user_query)
+    summary = _safe_text(text_answer.split(" Token Usage")[0].strip())
+    query = _safe_text(user_query)
 
-    styles  = getSampleStyleSheet()
-    title_s = ParagraphStyle("title_s", parent=styles["Heading1"], fontSize=18, leading=22,
-                              spaceAfter=4, textColor=colors.HexColor("#f8fafc"))
-    meta_s  = ParagraphStyle("meta_s",  parent=styles["Normal"], fontSize=9,
-                              textColor=colors.HexColor("#94a3b8"))
-    h2_s    = ParagraphStyle("h2_s",    parent=styles["Heading2"], fontSize=12,
-                              textColor=colors.HexColor("#e2e8f0"), spaceBefore=8, spaceAfter=6)
-    body_s  = ParagraphStyle("body_s",  parent=styles["Normal"], fontSize=10.5,
-                              leading=14, textColor=colors.HexColor("#cbd5e1"))
+    styles = getSampleStyleSheet()
+    title_s = ParagraphStyle(
+        "title_s",
+        parent=styles["Heading1"],
+        fontSize=18,
+        leading=22,
+        spaceAfter=4,
+        textColor=colors.HexColor("#f8fafc"),
+    )
+    meta_s = ParagraphStyle(
+        "meta_s",
+        parent=styles["Normal"],
+        fontSize=9,
+        textColor=colors.HexColor("#94a3b8"),
+    )
+    h2_s = ParagraphStyle(
+        "h2_s",
+        parent=styles["Heading2"],
+        fontSize=12,
+        textColor=colors.HexColor("#e2e8f0"),
+        spaceBefore=8,
+        spaceAfter=6,
+    )
+    body_s = ParagraphStyle(
+        "body_s",
+        parent=styles["Normal"],
+        fontSize=10.5,
+        leading=14,
+        textColor=colors.HexColor("#cbd5e1"),
+    )
 
     buf = BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=letter,
-                            leftMargin=0.55*inch, rightMargin=0.55*inch,
-                            topMargin=0.55*inch, bottomMargin=0.55*inch,
-                            title=f"Analytics Report - {query[:80]}")
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=letter,
+        leftMargin=0.55 * inch,
+        rightMargin=0.55 * inch,
+        topMargin=0.55 * inch,
+        bottomMargin=0.55 * inch,
+        title=f"Analytics Report - {query[:80]}",
+    )
     story = []
     story.append(Paragraph(escape(query), title_s))
     story.append(Paragraph(f"Generated {generated_at}", meta_s))
     story.append(Spacer(1, 6))
-    story.append(HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#1e293b")))
+    story.append(
+        HRFlowable(width="100%", thickness=0.6, color=colors.HexColor("#1e293b"))
+    )
     story.append(Spacer(1, 10))
 
     summary_lines = summary.splitlines() if summary else ["-"]
@@ -773,9 +842,13 @@ def _build_export_pdf(state: dict, user_query: str) -> bytes:
     summary_lines = compact_lines
     summary_lower = summary.lower() if summary else ""
     summary_looks_structured = (
-        ("period" in summary_lower and "value" in summary_lower and len(summary_lines) > 20) or
-        ("insights:" in summary_lower) or
-        (summary.count("\n") > 40 and (" - " in summary or "\n- " in summary))
+        (
+            "period" in summary_lower
+            and "value" in summary_lower
+            and len(summary_lines) > 20
+        )
+        or ("insights:" in summary_lower)
+        or (summary.count("\n") > 40 and (" - " in summary or "\n- " in summary))
     )
     if len(summary_lines) > 80:
         summary_lines = summary_lines[:80] + [
@@ -783,14 +856,23 @@ def _build_export_pdf(state: dict, user_query: str) -> bytes:
             f"... output truncated in PDF ({len(summary.splitlines()) - 80} more lines).",
         ]
     if summary_looks_structured and items:
-        summary_lines = summary_lines[:6] + ["", "Detailed rows moved to chart/table to avoid repetition in PDF."]
+        summary_lines = summary_lines[:6] + [
+            "",
+            "Detailed rows moved to chart/table to avoid repetition in PDF.",
+        ]
     story.append(Paragraph("Answer", h2_s))
-    bullets = [ln.strip()[2:].strip() for ln in summary_lines if ln.strip().startswith("- ")]
-    body_lines = [ln for ln in summary_lines if ln.strip() and not ln.strip().startswith("- ")]
+    bullets = [
+        ln.strip()[2:].strip() for ln in summary_lines if ln.strip().startswith("- ")
+    ]
+    body_lines = [
+        ln for ln in summary_lines if ln.strip() and not ln.strip().startswith("- ")
+    ]
     summary_html = "<br/>".join(escape(x) for x in body_lines) if body_lines else "-"
     story.append(Paragraph(summary_html, body_s))
     if bullets:
-        bullet_items = [ListItem(Paragraph(escape(b), body_s), leftIndent=10) for b in bullets]
+        bullet_items = [
+            ListItem(Paragraph(escape(b), body_s), leftIndent=10) for b in bullets
+        ]
         story.append(Spacer(1, 4))
         story.append(ListFlowable(bullet_items, bulletType="bullet", leftIndent=12))
     story.append(Spacer(1, 8))
@@ -830,7 +912,9 @@ def _build_export_pdf(state: dict, user_query: str) -> bytes:
             head = items[:120]
             tail = items[-120:]
             table_items = head + tail
-            trimmed_note = f"Showing first 120 and last 120 rows out of {len(items)} rows."
+            trimmed_note = (
+                f"Showing first 120 and last 120 rows out of {len(items)} rows."
+            )
 
         table_data = [[_pretty_col(c) for c in cols]]
         for row in table_items:
@@ -840,36 +924,51 @@ def _build_export_pdf(state: dict, user_query: str) -> bytes:
         if len(cols) <= 1:
             col_widths = [avail_w]
         else:
-            first_w   = min(max(190, avail_w * 0.36), avail_w * 0.5)
-            rest_w    = (avail_w - first_w) / (len(cols) - 1)
+            first_w = min(max(190, avail_w * 0.36), avail_w * 0.5)
+            rest_w = (avail_w - first_w) / (len(cols) - 1)
             col_widths = [first_w] + [rest_w] * (len(cols) - 1)
 
         tbl = LongTable(table_data, repeatRows=1, hAlign="LEFT", colWidths=col_widths)
-        align_cmds = [("ALIGN", (0,0),(-1,0),"LEFT"), ("ALIGN", (0,1),(0,-1),"LEFT")]
+        align_cmds = [
+            ("ALIGN", (0, 0), (-1, 0), "LEFT"),
+            ("ALIGN", (0, 1), (0, -1), "LEFT"),
+        ]
         for ci, col_name in enumerate(cols[1:], start=1):
             numeric_col = ("rank" in col_name.lower()) or all(
-                _is_number_like(r.get(col_name)) for r in items[:min(20, len(items))]
+                _is_number_like(r.get(col_name)) for r in items[: min(20, len(items))]
             )
-            align_cmds.append(("ALIGN", (ci,1),(ci,-1), "RIGHT" if numeric_col else "LEFT"))
+            align_cmds.append(
+                ("ALIGN", (ci, 1), (ci, -1), "RIGHT" if numeric_col else "LEFT")
+            )
 
-        tbl.setStyle(TableStyle([
-            ("BACKGROUND",  (0,0),(-1,0),   colors.HexColor("#0f172a")),
-            ("TEXTCOLOR",   (0,0),(-1,0),   colors.HexColor("#e2e8f0")),
-            ("FONTNAME",    (0,0),(-1,0),   "Helvetica-Bold"),
-            ("FONTSIZE",    (0,0),(-1,0),   9.2),
-            ("FONTNAME",    (0,1),(-1,-1),  "Helvetica"),
-            ("FONTSIZE",    (0,1),(-1,-1),  9),
-            ("TEXTCOLOR",   (0,1),(-1,-1),  colors.HexColor("#cbd5e1")),
-            ("LINEABOVE",   (0,0),(-1,0),   0.8, colors.HexColor("#334155")),
-            ("LINEBELOW",   (0,0),(-1,0),   0.8, colors.HexColor("#334155")),
-            ("GRID",        (0,1),(-1,-1),  0.35, colors.HexColor("#1f2937")),
-            ("ROWBACKGROUNDS",(0,1),(-1,-1),[colors.HexColor("#020617"), colors.HexColor("#0b1220")]),
-            ("VALIGN",      (0,0),(-1,-1),  "TOP"),
-            ("LEFTPADDING", (0,0),(-1,-1),  6),
-            ("RIGHTPADDING",(0,0),(-1,-1),  6),
-            ("TOPPADDING",  (0,0),(-1,-1),  5),
-            ("BOTTOMPADDING",(0,0),(-1,-1), 5),
-        ] + align_cmds))
+        tbl.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0f172a")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#e2e8f0")),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, 0), 9.2),
+                    ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
+                    ("FONTSIZE", (0, 1), (-1, -1), 9),
+                    ("TEXTCOLOR", (0, 1), (-1, -1), colors.HexColor("#cbd5e1")),
+                    ("LINEABOVE", (0, 0), (-1, 0), 0.8, colors.HexColor("#334155")),
+                    ("LINEBELOW", (0, 0), (-1, 0), 0.8, colors.HexColor("#334155")),
+                    ("GRID", (0, 1), (-1, -1), 0.35, colors.HexColor("#1f2937")),
+                    (
+                        "ROWBACKGROUNDS",
+                        (0, 1),
+                        (-1, -1),
+                        [colors.HexColor("#020617"), colors.HexColor("#0b1220")],
+                    ),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 6),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]
+                + align_cmds
+            )
+        )
         story.append(CondPageBreak(1.6 * inch))
         story.append(Paragraph("Data Table", h2_s))
         if trimmed_note:
@@ -892,8 +991,10 @@ def _build_export_pdf(state: dict, user_query: str) -> bytes:
         canv.rect(0, 0, letter[0], letter[1], stroke=0, fill=1)
         canv.setFont("Helvetica", 8)
         canv.setFillColor(colors.HexColor("#64748b"))
-        canv.drawString(_doc.leftMargin, 0.30*inch, "Data Analytics Report")
-        canv.drawRightString(letter[0]-_doc.rightMargin, 0.30*inch, f"Page {_doc.page}")
+        canv.drawString(_doc.leftMargin, 0.30 * inch, "Data Analytics Report")
+        canv.drawRightString(
+            letter[0] - _doc.rightMargin, 0.30 * inch, f"Page {_doc.page}"
+        )
         canv.restoreState()
 
     doc.build(story, onFirstPage=_on_page, onLaterPages=_on_page)
@@ -901,6 +1002,7 @@ def _build_export_pdf(state: dict, user_query: str) -> bytes:
 
 
 #  API helpers
+
 
 def api_ok():
     try:
@@ -939,28 +1041,44 @@ def _wait_for_ingest_ready(max_wait_seconds=20.0):
     return False
 
 
-def ingest_uploaded_files(uploaded_files, reset_db=False, merge_confirm=False):
+def ingest_uploaded_files(
+    uploaded_files,
+    reset_db=False,
+    merge_confirm=False,
+    discover_files=False,
+    discover_dirs=None,
+    llm_schema_infer=True,
+):
     files_payload = []
-    SHARED_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    for f in uploaded_files or []:
-        raw = f.getvalue()
-        if not raw:
-            continue
-        safe_name  = Path(f.name).name
-        local_path = SHARED_UPLOAD_DIR / safe_name
-        local_path.write_bytes(raw)
-        files_payload.append({
-            "name": safe_name,
-            "path": f"{CONTAINER_UPLOAD_DIR}/{safe_name}",
-        })
-    if not files_payload:
+    if uploaded_files:
+        SHARED_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+        for f in uploaded_files or []:
+            raw = f.getvalue()
+            if not raw:
+                continue
+            safe_name = Path(f.name).name
+            local_path = SHARED_UPLOAD_DIR / safe_name
+            local_path.write_bytes(raw)
+            files_payload.append(
+                {
+                    "name": safe_name,
+                    "path": f"{CONTAINER_UPLOAD_DIR}/{safe_name}",
+                }
+            )
+    if not files_payload and not discover_files:
         raise ValueError("No valid file content to upload.")
 
     body = {
         "files": files_payload,
         "reset_db": bool(reset_db),
         "merge_confirm": bool(merge_confirm),
+        "discover_files": bool(discover_files),
+        "discover_latest_only": True,
+        "llm_schema_infer": bool(llm_schema_infer),
     }
+    if discover_dirs:
+        body["discover_dirs"] = discover_dirs
+
     _wait_for_ingest_ready(max_wait_seconds=20.0)
     last_err = None
     for attempt in range(12):
@@ -977,7 +1095,11 @@ def ingest_uploaded_files(uploaded_files, reset_db=False, merge_confirm=False):
         except Exception as exc:
             last_err = exc
             err_s = str(exc)
-            if ("HTTP 404" in err_s) or ("invocation_stopped" in err_s) or ("Connection aborted" in err_s):
+            if (
+                ("HTTP 404" in err_s)
+                or ("invocation_stopped" in err_s)
+                or ("Connection aborted" in err_s)
+            ):
                 _wait_for_ingest_ready(max_wait_seconds=6.0)
                 time.sleep(0.5 + attempt * 0.35)
                 continue
@@ -996,6 +1118,7 @@ def fetch_chart_html(query_id):
         if text.startswith('"') and text.endswith('"'):
             try:
                 import json as _j
+
                 return _j.loads(text)
             except Exception:
                 return text
@@ -1014,9 +1137,9 @@ def _parse_iso(ts):
 
 
 def _compute_backend_step_times(state):
-    ts_map     = state.get("status_timestamps", {}) or {}
+    ts_map = state.get("status_timestamps", {}) or {}
     created_at = _parse_iso(state.get("createdAt"))
-    step_at    = {}
+    step_at = {}
     for idx in range(len(STEPS)):
         for status_name in STEP_STATUS_OPTIONS.get(idx, []):
             dt = _parse_iso(ts_map.get(status_name))
@@ -1026,7 +1149,7 @@ def _compute_backend_step_times(state):
     if 0 not in step_at and created_at:
         step_at[0] = created_at
     times = {}
-    prev  = created_at or step_at.get(0)
+    prev = created_at or step_at.get(0)
     for idx in range(len(STEPS)):
         dt = step_at.get(idx)
         if not dt:
@@ -1053,7 +1176,7 @@ def render_steps(completed_idx, is_error, step_times):
 
         t = step_times.get(i)
         if t is not None:
-            t_label   = f"{t:.2f}s" if t < 1 else f"{t:.1f}s"
+            t_label = f"{t:.2f}s" if t < 1 else f"{t:.1f}s"
             time_html = f'<div class="step-time">{t_label}</div>'
         elif cls == "active":
             time_html = '<div class="step-time">…</div>'
@@ -1063,8 +1186,8 @@ def render_steps(completed_idx, is_error, step_times):
         parts.append(f"""
         <div class="step-wrap {cls}">
             <div class="step-circle {cls}">{icon}</div>
-            <div class="step-label">{s['label']}</div>
-            <div class="step-sub">{s['sub']}</div>
+            <div class="step-label">{s["label"]}</div>
+            <div class="step-sub">{s["sub"]}</div>
             {time_html}
         </div>""")
 
@@ -1074,6 +1197,7 @@ def render_steps(completed_idx, is_error, step_times):
 def render_tokens(usage, totals):
     if not usage:
         return
+
     def _is_llm_entry(e: dict) -> bool:
         if "is_llm" in e:
             return bool(e.get("is_llm"))
@@ -1093,24 +1217,27 @@ def render_tokens(usage, totals):
             prompt = 0
             completion = 0
             total = 0
-        rows.append({
-            "Step": e.get("step", "?"),
-            "Model": (e.get("model") or "").split("/")[-1].replace("-instant", ""),
-            "Prompt": prompt,
-            "Completion": completion,
-            "Total": total,
-        })
+        rows.append(
+            {
+                "Step": e.get("step", "?"),
+                "Model": (e.get("model") or "").split("/")[-1].replace("-instant", ""),
+                "Prompt": prompt,
+                "Completion": completion,
+                "Total": total,
+            }
+        )
     st.dataframe(rows, width="stretch", hide_index=True)
     if llm_rows == 0:
         st.caption("LLM not used for this query (rule-based and deterministic steps).")
     elif totals and totals.get("total_tokens"):
         c1, c2, c3 = st.columns(3)
-        c1.metric("Prompt tokens",     totals.get("prompt_tokens", 0))
+        c1.metric("Prompt tokens", totals.get("prompt_tokens", 0))
         c2.metric("Completion tokens", totals.get("completion_tokens", 0))
-        c3.metric("Total tokens",      totals.get("total_tokens", 0))
+        c3.metric("Total tokens", totals.get("total_tokens", 0))
 
 
 # ── Schema section — now uses ER diagram ─────────────────────────────────────
+
 
 def render_schema_section():
     """
@@ -1133,17 +1260,25 @@ def render_schema_section():
             else:
                 tables = schema_data.get("tables", [])
                 rels = schema_data.get("relationships", [])
-                st.caption(f"{len(tables)} derived table{'s' if len(tables) != 1 else ''}")
+                st.caption(
+                    f"{len(tables)} derived table{'s' if len(tables) != 1 else ''}"
+                )
                 col_a, col_b = st.columns(2)
                 for i, tbl in enumerate(tables):
                     tname = tbl.get("table", "unknown")
                     cols = tbl.get("columns", [])
                     target = col_a if i % 2 == 0 else col_b
                     with target:
-                        with st.expander(f"[ ] {tname} ({len(cols)} columns)", expanded=False):
+                        with st.expander(
+                            f"[ ] {tname} ({len(cols)} columns)", expanded=False
+                        ):
                             st.dataframe(
-                                [{"Column": c["name"], "Type": c["type"]} for c in cols],
-                                hide_index=True, width="stretch",
+                                [
+                                    {"Column": c["name"], "Type": c["type"]}
+                                    for c in cols
+                                ],
+                                hide_index=True,
+                                width="stretch",
                             )
                 if rels:
                     with st.expander(f"Relationships ({len(rels)})", expanded=False):
@@ -1160,18 +1295,23 @@ def render_schema_section():
             st.caption("No raw tables loaded yet.")
         else:
             raw_tables = raw_data.get("tables", [])
-            st.caption(f"{len(raw_tables)} raw table{'s' if len(raw_tables) != 1 else ''}")
+            st.caption(
+                f"{len(raw_tables)} raw table{'s' if len(raw_tables) != 1 else ''}"
+            )
             for tbl in raw_tables:
                 tname = tbl.get("table", "unknown")
                 cols = tbl.get("columns", [])
                 with st.expander(f"{tname} ({len(cols)} columns)", expanded=False):
                     st.dataframe(
                         [{"Column": c["name"], "Type": c["type"]} for c in cols],
-                        hide_index=True, width="stretch",
+                        hide_index=True,
+                        width="stretch",
                     )
 
     if st.button("Refresh schema", key="refresh_schema_bottom", type="secondary"):
-        st.session_state["schema_refresh_nonce"] = int(st.session_state.get("schema_refresh_nonce", 0)) + 1
+        st.session_state["schema_refresh_nonce"] = (
+            int(st.session_state.get("schema_refresh_nonce", 0)) + 1
+        )
         st.session_state["schema_last_refresh"] = datetime.now().strftime("%H:%M:%S")
         st.rerun()
 
@@ -1222,8 +1362,13 @@ with left:
                 value=False,
                 key="same_business_merge_confirm",
             )
-        reset_db   = st.checkbox("Replace existing dataset", value=True)
+        reset_db = st.checkbox("Replace existing dataset", value=True)
         ingest_btn = st.button("Ingest files", type="secondary")
+        stitch_drop_btn = st.button(
+            "Stitch dropped file",
+            type="secondary",
+            help="Auto-discover the newest CSV/JSON/Parquet dropped in the project folder and ingest it.",
+        )
         if ingest_btn:
             if not upload_files:
                 st.warning("Select at least one file.")
@@ -1241,7 +1386,9 @@ with left:
                         )
                         tnames = ", ".join(result.get("tables_created", []))
                         n_rels = len(result.get("relationships", []))
-                        msg = f"Ingested: {tnames}" if tnames else "Ingestion completed."
+                        msg = (
+                            f"Ingested: {tnames}" if tnames else "Ingestion completed."
+                        )
                         if n_rels:
                             msg += f" - {n_rels} relationship{'s' if n_rels != 1 else ''} detected"
                         st.success(msg)
@@ -1260,6 +1407,34 @@ with left:
                     except Exception as e:
                         st.error(f"Ingestion failed: {e}")
 
+        if stitch_drop_btn:
+            with st.spinner("Scanning project directory for dropped files..."):
+                try:
+                    result = ingest_uploaded_files(
+                        uploaded_files=None,
+                        reset_db=reset_db,
+                        merge_confirm=False,
+                        discover_files=True,
+                    )
+                    d_files = result.get("discovered_files") or []
+                    tnames = ", ".join(result.get("tables_created", []))
+                    if tnames:
+                        st.success(f"Stitched: {tnames}")
+                    elif d_files:
+                        st.success("Dropped file discovered and ingestion completed.")
+                    else:
+                        st.info("No new dropped data files found to ingest.")
+
+                    # Reset conversational context on schema change.
+                    if tnames:
+                        st.session_state.conversation_session_id = None
+                        st.session_state.pending_session = None
+                        for k in (_DISCOVERY_KEY, _DISCOVERY_AT, _DISCOVERY_CACHED):
+                            st.session_state.pop(k, None)
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Stitch failed: {e}")
+
     st.divider()
 
     # Suggested question chips
@@ -1276,7 +1451,8 @@ with left:
     st.markdown('<div class="section-lbl">Ask a question</div>', unsafe_allow_html=True)
 
     query_input = st.text_input(
-        "query", label_visibility="collapsed",
+        "query",
+        label_visibility="collapsed",
         placeholder="e.g. Top 5 entities by total value in last year",
         disabled=st.session_state.polling,
         on_change=_on_enter,
@@ -1290,9 +1466,9 @@ with left:
         type="primary",
         on_click=_on_enter,
     )
-    status_placeholder  = status_col.empty()
+    status_placeholder = status_col.empty()
     clarify_placeholder = st.empty()
-    result_placeholder  = st.empty()
+    result_placeholder = st.empty()
 
 with right:
     st.markdown('<div class="section-lbl">Token usage</div>', unsafe_allow_html=True)
@@ -1304,17 +1480,23 @@ with right:
     st.markdown('<div class="section-lbl">Generated SQL</div>', unsafe_allow_html=True)
     sql_placeholder = st.empty()
     with sql_placeholder.container():
-        st.markdown('<div class="sql-box">Waiting for SQL generation</div>',
-                    unsafe_allow_html=True)
+        st.markdown(
+            '<div class="sql-box">Waiting for SQL generation</div>',
+            unsafe_allow_html=True,
+        )
 
     st.divider()
-    st.markdown('<div class="section-lbl">Business digest</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-lbl">Business digest</div>', unsafe_allow_html=True
+    )
     render_business_digest(API)
 
 # ── Bookmark localStorage bridge ──────────────────────────────────────────────
 
+
 def bm_save_to_ls(bookmarks):
     import json as _json
+
     safe = _json.dumps(bookmarks, ensure_ascii=False)
     components.html(
         f"""
@@ -1344,11 +1526,13 @@ def _render_bookmarks_panel():
         st.caption("No pinned results yet — star a result to save it here.")
         return
 
-    with st.expander(f"Show {len(bms)} pinned result{'s' if len(bms)!=1 else ''}", expanded=True):
+    with st.expander(
+        f"Show {len(bms)} pinned result{'s' if len(bms) != 1 else ''}", expanded=True
+    ):
         for i, bm in enumerate(bms):
             ts = bm.get("timestamp", "")
-            q  = bm.get("query", "")
-            txt= bm.get("text", "")[:300]
+            q = bm.get("query", "")
+            txt = bm.get("text", "")[:300]
             col_meta, col_del = st.columns([9, 1])
             with col_meta:
                 st.markdown(
@@ -1356,14 +1540,15 @@ def _render_bookmarks_panel():
                     f'<div class="bm-query">\u201c{q}\u201d</div>'
                     f'<div class="bm-text">{txt}</div>'
                     f'<div class="bm-ts">{ts}</div>'
-                    f'</div>',
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
             with col_del:
                 st.write("")
                 if st.button("🗑", key=f"del_bm_{bm['query_id']}_{i}", help="Unpin"):
                     st.session_state.bookmarks = [
-                        b for b in st.session_state.bookmarks
+                        b
+                        for b in st.session_state.bookmarks
                         if b["query_id"] != bm["query_id"]
                     ]
                     bm_save_to_ls(st.session_state.bookmarks)
@@ -1392,6 +1577,7 @@ if not st.session_state.bm_loaded:
     )
     try:
         import urllib.parse as _ul
+
         raw = st.query_params.get("_bm_init", "")
         if raw:
             loaded = json.loads(_ul.unquote(raw))
@@ -1416,10 +1602,15 @@ if st.session_state.history:
         key="hist_search_input",
         label_visibility="collapsed",
     )
-    filtered_hist = [
-        item for item in st.session_state.history
-        if hist_search.lower() in item["query"].lower()
-    ] if hist_search.strip() else st.session_state.history
+    filtered_hist = (
+        [
+            item
+            for item in st.session_state.history
+            if hist_search.lower() in item["query"].lower()
+        ]
+        if hist_search.strip()
+        else st.session_state.history
+    )
 
     total = len(st.session_state.history)
     shown = len(filtered_hist)
@@ -1432,15 +1623,20 @@ if st.session_state.history:
         if not filtered_hist:
             st.caption("No queries match that keyword.")
         for item in reversed(filtered_hist):
-            st.markdown(f"""
+            st.markdown(
+                f"""
             <div class="hist-item">
-                <div class="hist-q">▸ {item['query']}</div>
-                <div class="hist-a">{item['result'][:300]}</div>
-            </div>""", unsafe_allow_html=True)
+                <div class="hist-q">▸ {item["query"]}</div>
+                <div class="hist-a">{item["result"][:300]}</div>
+            </div>""",
+                unsafe_allow_html=True,
+            )
 
 # ── Schema ER Diagram — BOTTOM OF PAGE ───────────────────────────────────────
 st.divider()
-st.markdown('<div class="section-lbl">Dataset schema — ER diagram</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="section-lbl">Dataset schema — ER diagram</div>', unsafe_allow_html=True
+)
 render_schema_section()
 
 
@@ -1456,9 +1652,9 @@ elif not st.session_state.polling and st.session_state.final_state:
     state = st.session_state.final_state
 
 if state:
-    status        = state.get("status", "")
-    target_idx    = STATUS_MAP.get(status, -1)
-    is_error      = status == "error"
+    status = state.get("status", "")
+    target_idx = STATUS_MAP.get(status, -1)
+    is_error = status == "error"
     backend_times = _compute_backend_step_times(state)
     if backend_times:
         st.session_state.step_times.update(backend_times)
@@ -1466,7 +1662,9 @@ if state:
     if target_idx > st.session_state.last_completed:
         st.session_state.last_completed = target_idx
 
-    render_idx = st.session_state.last_completed if st.session_state.polling else target_idx
+    render_idx = (
+        st.session_state.last_completed if st.session_state.polling else target_idx
+    )
     with steps_placeholder.container():
         render_steps(render_idx, is_error, st.session_state.step_times)
 
@@ -1479,8 +1677,10 @@ if state:
 
     if state.get("generated_sql"):
         with sql_placeholder.container():
-            st.markdown(f'<div class="sql-box">{state["generated_sql"].strip()}</div>',
-                        unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="sql-box">{state["generated_sql"].strip()}</div>',
+                unsafe_allow_html=True,
+            )
 
     if state.get("token_usage"):
         with token_placeholder.container():
@@ -1489,28 +1689,34 @@ if state:
     #  Terminal states
     if status == "needs_clarification":
         if st.session_state.polling:
-            st.session_state.polling         = False
+            st.session_state.polling = False
             st.session_state.pending_session = (
-                st.session_state.conversation_session_id
-                or st.session_state.query_id
+                st.session_state.conversation_session_id or st.session_state.query_id
             )
-            st.session_state.final_state     = state
+            st.session_state.final_state = state
             st.rerun()
 
         q = state.get("clarification", "Please clarify your query.")
         with clarify_placeholder.container():
-            st.markdown(f'<div class="clarify-box">💬 {q}</div>', unsafe_allow_html=True)
-            answer = st.text_input("Your answer",
-                                   key=f"clarify_{st.session_state.query_id}",
-                                   placeholder="Type your answer and press Enter")
-            if st.button("Reply", key=f"reply_{st.session_state.query_id}", type="primary"):
+            st.markdown(
+                f'<div class="clarify-box">💬 {q}</div>', unsafe_allow_html=True
+            )
+            answer = st.text_input(
+                "Your answer",
+                key=f"clarify_{st.session_state.query_id}",
+                placeholder="Type your answer and press Enter",
+            )
+            if st.button(
+                "Reply", key=f"reply_{st.session_state.query_id}", type="primary"
+            ):
                 if answer.strip():
-                    st.session_state.polling        = True
-                    st.session_state.step_times     = {}
+                    st.session_state.polling = True
+                    st.session_state.step_times = {}
                     st.session_state.last_completed = -1
-                    st.session_state.poll_start     = time.time()
-                    resp = submit_query(answer.strip(),
-                                        session_id=st.session_state.pending_session)
+                    st.session_state.poll_start = time.time()
+                    resp = submit_query(
+                        answer.strip(), session_id=st.session_state.pending_session
+                    )
                     st.session_state.query_id = resp["queryId"]
                     st.session_state.conversation_session_id = (
                         resp.get("sessionId")
@@ -1522,13 +1728,15 @@ if state:
 
     elif status == "completed":
         if st.session_state.polling:
-            st.session_state.polling     = False
+            st.session_state.polling = False
             st.session_state.final_state = state
             hist_query = query_input if query_input else "(clarification reply)"
-            st.session_state.history.append({
-                "query":  hist_query,
-                "result": state.get("formattedText", ""),
-            })
+            st.session_state.history.append(
+                {
+                    "query": hist_query,
+                    "result": state.get("formattedText", ""),
+                }
+            )
             st.rerun()
 
         text = state.get("formattedText", "Query complete.")
@@ -1538,25 +1746,37 @@ if state:
 
             # ── Star / bookmark button ──────────────────────────────────────
             qid = st.session_state.query_id
-            already_starred = any(b["query_id"] == qid for b in st.session_state.bookmarks)
-            last_q = (st.session_state.history[-1]["query"]
-                      if st.session_state.history else "query")
+            already_starred = any(
+                b["query_id"] == qid for b in st.session_state.bookmarks
+            )
+            last_q = (
+                st.session_state.history[-1]["query"]
+                if st.session_state.history
+                else "query"
+            )
 
             star_col, chart_col, _ = st.columns([1, 1, 4])
             with star_col:
                 star_label = "⭐ Pinned" if already_starred else "☆ Pin result"
-                if st.button(star_label, key=_star_button_key(qid), use_container_width=True):
+                if st.button(
+                    star_label, key=_star_button_key(qid), use_container_width=True
+                ):
                     if already_starred:
                         st.session_state.bookmarks = [
-                            b for b in st.session_state.bookmarks if b["query_id"] != qid
+                            b
+                            for b in st.session_state.bookmarks
+                            if b["query_id"] != qid
                         ]
                     else:
-                        st.session_state.bookmarks.insert(0, {
-                            "query_id":  qid,
-                            "query":     last_q,
-                            "text":      text,
-                            "timestamp": datetime.now().strftime("%d %b %Y, %H:%M"),
-                        })
+                        st.session_state.bookmarks.insert(
+                            0,
+                            {
+                                "query_id": qid,
+                                "query": last_q,
+                                "text": text,
+                                "timestamp": datetime.now().strftime("%d %b %Y, %H:%M"),
+                            },
+                        )
                     bm_save_to_ls(st.session_state.bookmarks)
                     st.rerun()
 
@@ -1568,11 +1788,21 @@ if state:
 
             # PDF download
             st.markdown("<br>", unsafe_allow_html=True)
-            last_query = (st.session_state.history[-1]["query"]
-                          if st.session_state.history else "query")
-            safe_name = "".join(
-                ch for ch in last_query[:48] if ch.isalnum() or ch in (" ", "_", "-")
-            ).strip().replace(" ", "_") or "report"
+            last_query = (
+                st.session_state.history[-1]["query"]
+                if st.session_state.history
+                else "query"
+            )
+            safe_name = (
+                "".join(
+                    ch
+                    for ch in last_query[:48]
+                    if ch.isalnum() or ch in (" ", "_", "-")
+                )
+                .strip()
+                .replace(" ", "_")
+                or "report"
+            )
             try:
                 pdf_bytes = _build_export_pdf(state, last_query)
                 st.download_button(
@@ -1611,8 +1841,10 @@ if state:
         err = state.get("error", "Unknown error.")
         with result_placeholder.container():
             st.markdown('<div class="section-lbl">Result</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="result-box result-error">⚠ {err}</div>',
-                        unsafe_allow_html=True)
+            st.markdown(
+                f'<div class="result-box result-error">⚠ {err}</div>',
+                unsafe_allow_html=True,
+            )
 
     else:
         if st.session_state.polling:

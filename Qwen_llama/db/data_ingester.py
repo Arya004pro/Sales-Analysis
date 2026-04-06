@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -12,17 +14,59 @@ from db.duckdb_connection import get_write_connection
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
+_META_INGEST_REGISTRY = "_raw_meta_ingest_registry"
+_META_SEMANTIC_HINTS = "_raw_meta_semantic_hints"
+_SUPPORTED_DISCOVERY_EXTS = {".csv", ".tsv", ".json", ".jsonl", ".parquet"}
+_DISCOVERY_SKIP_DIRS = {".git", "node_modules", "__pycache__", ".venv", "venv"}
+
 _REL_PREFIX = "_raw_rel_"
 _REL_KEY_SUFFIXES = ("_id", "_code", "_key", "_uuid")
 _BUSINESS_TOKEN_SKIP = {
-    "id", "key", "code", "uuid", "name", "date", "time", "datetime",
-    "timestamp", "created", "updated", "is", "has", "row", "index", "no",
-    "type", "status", "value", "amount", "total", "final", "unit",
+    "id",
+    "key",
+    "code",
+    "uuid",
+    "name",
+    "date",
+    "time",
+    "datetime",
+    "timestamp",
+    "created",
+    "updated",
+    "is",
+    "has",
+    "row",
+    "index",
+    "no",
+    "type",
+    "status",
+    "value",
+    "amount",
+    "total",
+    "final",
+    "unit",
 }
 _GENERIC_BUSINESS_ROOTS = {
-    "id", "key", "code", "uuid", "name", "date", "time", "datetime",
-    "timestamp", "created", "updated", "row", "index", "type", "status",
-    "value", "amount", "total", "final", "unit",
+    "id",
+    "key",
+    "code",
+    "uuid",
+    "name",
+    "date",
+    "time",
+    "datetime",
+    "timestamp",
+    "created",
+    "updated",
+    "row",
+    "index",
+    "type",
+    "status",
+    "value",
+    "amount",
+    "total",
+    "final",
+    "unit",
 }
 
 
@@ -51,6 +95,302 @@ def _sql_quote_path(file_path: Path) -> str:
 
 def _qident(name: str) -> str:
     return '"' + str(name).replace('"', '""') + '"'
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _path_key(p: Path) -> str:
+    try:
+        return str(p.resolve()).replace("\\", "/")
+    except Exception:
+        return str(p).replace("\\", "/")
+
+
+def _ensure_meta_tables(conn) -> None:
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_qident(_META_INGEST_REGISTRY)} (
+            file_path VARCHAR PRIMARY KEY,
+            file_name VARCHAR,
+            file_size BIGINT,
+            file_mtime DOUBLE,
+            table_name VARCHAR,
+            ingested_at VARCHAR
+        )
+        """
+    )
+    conn.execute(
+        f"""
+        CREATE TABLE IF NOT EXISTS {_qident(_META_SEMANTIC_HINTS)} (
+            table_name VARCHAR PRIMARY KEY,
+            hint_json VARCHAR,
+            updated_at VARCHAR
+        )
+        """
+    )
+
+
+def _load_known_files(conn) -> dict[str, tuple[int, float]]:
+    try:
+        rows = conn.execute(
+            f"SELECT file_path, file_size, file_mtime FROM {_qident(_META_INGEST_REGISTRY)}"
+        ).fetchall()
+    except Exception:
+        return {}
+    out: dict[str, tuple[int, float]] = {}
+    for fp, size, mtime in rows:
+        out[str(fp)] = (int(size or 0), float(mtime or 0.0))
+    return out
+
+
+def _record_ingested_file(conn, fp: Path, table: str) -> None:
+    try:
+        st = fp.stat()
+        file_size = int(st.st_size)
+        file_mtime = float(st.st_mtime)
+    except Exception:
+        file_size = 0
+        file_mtime = 0.0
+
+    pkey = _path_key(fp)
+    conn.execute(
+        f"DELETE FROM {_qident(_META_INGEST_REGISTRY)} WHERE file_path = ?",
+        [pkey],
+    )
+    conn.execute(
+        f"""
+        INSERT INTO {_qident(_META_INGEST_REGISTRY)}
+            (file_path, file_name, file_size, file_mtime, table_name, ingested_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        [pkey, fp.name, file_size, file_mtime, table, _now_iso()],
+    )
+
+
+def _record_semantic_hint(conn, table: str, hint: dict[str, Any]) -> None:
+    payload = json.dumps(hint, ensure_ascii=True)
+    conn.execute(
+        f"DELETE FROM {_qident(_META_SEMANTIC_HINTS)} WHERE table_name = ?",
+        [table],
+    )
+    conn.execute(
+        f"""
+        INSERT INTO {_qident(_META_SEMANTIC_HINTS)} (table_name, hint_json, updated_at)
+        VALUES (?, ?, ?)
+        """,
+        [table, payload, _now_iso()],
+    )
+
+
+def _discover_drop_files(
+    conn,
+    scan_dirs: list[Path],
+    include_seen: bool = False,
+    latest_only: bool = True,
+    max_files: int = 10,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    known = _load_known_files(conn)
+    candidates: list[tuple[float, Path]] = []
+
+    for root in scan_dirs:
+        if not root.exists() or not root.is_dir():
+            continue
+        try:
+            walker = root.rglob("*")
+        except Exception:
+            continue
+
+        for p in walker:
+            if not p.is_file():
+                continue
+            if p.suffix.lower() not in _SUPPORTED_DISCOVERY_EXTS:
+                continue
+            if any(part in _DISCOVERY_SKIP_DIRS for part in p.parts):
+                continue
+
+            key = _path_key(p)
+            try:
+                st = p.stat()
+                sig = (int(st.st_size), float(st.st_mtime))
+            except Exception:
+                sig = (0, 0.0)
+
+            if (not include_seen) and key in known and known[key] == sig:
+                continue
+            candidates.append((sig[1], p))
+
+    if not candidates:
+        return [], []
+
+    candidates.sort(key=lambda x: x[0], reverse=True)
+    if latest_only:
+        candidates = candidates[:1]
+    else:
+        candidates = candidates[:max_files]
+
+    files: list[dict[str, Any]] = []
+    discovered: list[str] = []
+    seen_paths: set[str] = set()
+    for _mtime, p in candidates:
+        k = _path_key(p)
+        if k in seen_paths:
+            continue
+        seen_paths.add(k)
+        files.append({"name": p.name, "path": str(p)})
+        discovered.append(k)
+    return files, discovered
+
+
+def _strip_markdown_fence(text: str) -> str:
+    s = (text or "").strip()
+    if s.startswith("```"):
+        s = re.sub(r"^```[a-zA-Z0-9_\-]*", "", s).strip()
+        if s.endswith("```"):
+            s = s[:-3].strip()
+    return s
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    raw = _strip_markdown_fence(text)
+    try:
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        pass
+
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        return None
+    try:
+        obj = json.loads(m.group(0))
+        if isinstance(obj, dict):
+            return obj
+    except Exception:
+        return None
+    return None
+
+
+def _safe_aliases(v: Any, max_items: int = 8) -> list[str]:
+    if not isinstance(v, list):
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    for x in v:
+        s = str(x or "").strip().lower()
+        if not s or len(s) > 60:
+            continue
+        if s in seen:
+            continue
+        seen.add(s)
+        out.append(s)
+        if len(out) >= max_items:
+            break
+    return out
+
+
+def _infer_schema_hint_with_llm(
+    conn, table: str, cols: list[tuple[Any, ...]]
+) -> dict[str, Any] | None:
+    try:
+        from config import GROQ_API_TOKEN, QWEN_MODEL
+        from llm.client import call_llm
+    except Exception:
+        return None
+
+    if not GROQ_API_TOKEN:
+        return None
+
+    col_defs = [{"name": str(c[0]), "type": str(c[1])} for c in cols[:80]]
+    col_names = [str(c[0]) for c in cols[:20]]
+    sample_rows: list[dict[str, Any]] = []
+    if col_names:
+        try:
+            select_sql = ", ".join(_qident(c) for c in col_names)
+            rows = conn.execute(
+                f"SELECT {select_sql} FROM {_qident(table)} WHERE TRUE LIMIT 5"
+            ).fetchall()
+            for r in rows:
+                sample_rows.append(
+                    {
+                        col_names[i]: (None if r[i] is None else str(r[i])[:120])
+                        for i in range(len(col_names))
+                    }
+                )
+        except Exception:
+            sample_rows = []
+
+    system_prompt = (
+        "You infer analytics semantics for a newly ingested table. "
+        "Return ONLY valid JSON with this schema: "
+        '{"table_summary": string, "dimensions": [{"name": string, "aliases": [string], "join_key": string}], '
+        '"metrics": [{"name": string, "aliases": [string]}], "join_keys": [string]}. '
+        "Keep aliases short business terms and avoid guessing columns that do not exist."
+    )
+    user_payload = {
+        "table": table,
+        "columns": col_defs,
+        "sample_rows": sample_rows,
+    }
+
+    try:
+        llm_result = call_llm(
+            model_name=QWEN_MODEL,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {
+                    "role": "user",
+                    "content": json.dumps(user_payload, ensure_ascii=True),
+                },
+            ],
+            token=GROQ_API_TOKEN,
+            max_tokens=500,
+            step_name="IngestSchemaHint",
+        )
+        content = str(llm_result["choices"][0]["message"]["content"])
+    except Exception:
+        return None
+
+    parsed = _extract_json_object(content)
+    if not parsed:
+        return None
+
+    dim_aliases: dict[str, list[str]] = {}
+    for d in parsed.get("dimensions") or []:
+        if not isinstance(d, dict):
+            continue
+        name = str(d.get("name") or "").strip().lower()
+        if not name:
+            continue
+        als = _safe_aliases(d.get("aliases"))
+        if als:
+            dim_aliases[name] = als
+
+    metric_aliases: dict[str, list[str]] = {}
+    for m in parsed.get("metrics") or []:
+        if not isinstance(m, dict):
+            continue
+        name = str(m.get("name") or "").strip().lower()
+        if not name:
+            continue
+        als = _safe_aliases(m.get("aliases"))
+        if als:
+            metric_aliases[name] = als
+
+    join_keys = _safe_aliases(parsed.get("join_keys"), max_items=10)
+    summary = str(parsed.get("table_summary") or "").strip()
+
+    hint: dict[str, Any] = {
+        "table": table,
+        "dimension_aliases": dim_aliases,
+        "metric_aliases": metric_aliases,
+        "join_keys": join_keys,
+    }
+    if summary:
+        hint["table_summary"] = summary[:240]
+    return hint
 
 
 def _resolve_input_file(file_obj: dict[str, Any], upload_dir: Path) -> Path:
@@ -83,9 +423,13 @@ def _load_file_to_table(conn, file_path: Path, table: str) -> int:
                 "all_varchar=true, ignore_errors=true, null_padding=true)"
             )
     elif ext in (".json", ".jsonl"):
-        conn.execute(f'CREATE OR REPLACE TABLE "{table}" AS SELECT * FROM read_json_auto(\'{p}\')')
+        conn.execute(
+            f"CREATE OR REPLACE TABLE \"{table}\" AS SELECT * FROM read_json_auto('{p}')"
+        )
     elif ext == ".parquet":
-        conn.execute(f'CREATE OR REPLACE TABLE "{table}" AS SELECT * FROM read_parquet(\'{p}\')')
+        conn.execute(
+            f"CREATE OR REPLACE TABLE \"{table}\" AS SELECT * FROM read_parquet('{p}')"
+        )
     else:
         raise ValueError(f"Unsupported file format: {ext}")
     return conn.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
@@ -129,7 +473,9 @@ def _all_main_tables(conn) -> set[str]:
     return {r[0] for r in rows}
 
 
-def _table_business_signature(col_names: list[str]) -> tuple[set[str], set[str], set[str]]:
+def _table_business_signature(
+    col_names: list[str],
+) -> tuple[set[str], set[str], set[str]]:
     """
     Return (semantic_tokens, key_roots, topic_tokens) for compatibility checks.
     Fully schema-agnostic and name-pattern based.
@@ -216,7 +562,9 @@ def _text_profile(conn, table: str, col: str) -> tuple[int, int, float, int]:
         return 0, 0, 0.0, 0
 
 
-def _is_dimension_text_column(conn, table: str, col: str, dtype: str) -> tuple[bool, float]:
+def _is_dimension_text_column(
+    conn, table: str, col: str, dtype: str
+) -> tuple[bool, float]:
     """
     Data-driven dimension detector for text columns.
 
@@ -295,7 +643,9 @@ def _select_dependent_attrs(
     return [c for _, c in picked[:max_attrs]]
 
 
-def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> tuple[list[str], dict[str, int], list[dict[str, Any]]]:
+def _auto_structure_flat_table(
+    conn, base_table: str, used_tables: set[str]
+) -> tuple[list[str], dict[str, int], list[dict[str, Any]]]:
     """
     Build relational helper tables from a wide uploaded table.
 
@@ -351,8 +701,7 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
             continue
         key_ratio = _card_ratio(key_col)
         pref_attrs = [
-            c for c in col_names
-            if c != key_col and c.lower().startswith(prefix + "_")
+            c for c in col_names if c != key_col and c.lower().startswith(prefix + "_")
         ]
         dep_hint = min(len(pref_attrs), 5) * 0.15
         ratio_score = 1.0 if key_ratio >= 0.95 else (0.5 if key_ratio >= 0.70 else 0.0)
@@ -371,11 +720,9 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
     fact_rel_table: str | None = None
 
     for _score, prefix, key_col in ranked_groups:
-
         # Prefer same-prefix descriptive columns (customer_name, order_datetime, etc.)
         attrs: list[str] = [
-            c for c in col_names
-            if c != key_col and c.lower().startswith(prefix + "_")
+            c for c in col_names if c != key_col and c.lower().startswith(prefix + "_")
         ]
 
         # Only the primary fact-like anchor should carry broad FK references.
@@ -399,7 +746,18 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
                 if any(k in cl for k in _DATE_HINTS):
                     attrs.append(c)
                     continue
-                if any(t in dtype for t in ("INT", "DOUBLE", "FLOAT", "DECIMAL", "NUMERIC", "REAL", "BOOLEAN")):
+                if any(
+                    t in dtype
+                    for t in (
+                        "INT",
+                        "DOUBLE",
+                        "FLOAT",
+                        "DECIMAL",
+                        "NUMERIC",
+                        "REAL",
+                        "BOOLEAN",
+                    )
+                ):
                     attrs.append(c)
                     continue
                 ok_dim, _ratio = _is_dimension_text_column(conn, base_table, c, dtype)
@@ -416,7 +774,8 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
 
         # Add high-confidence dependent attributes (data-driven).
         extra_candidates = [
-            c for c in col_names
+            c
+            for c in col_names
             if (
                 c != key_col
                 and c not in dedup
@@ -505,7 +864,8 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
         key_col = col_by_lower.get(key_guess)
         rel_table = _derive_rel_table_name(base_table, token, used_tables)
         dep_candidates = [
-            c for c in col_names
+            c
+            for c in col_names
             if (
                 c != col_name
                 and c.lower() not in _SKIP_COLS
@@ -586,14 +946,16 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
                     continue
             t_cols = table_cols_map.get(t)
             if not t_cols:
-                t_cols = [r[0] for r in conn.execute(f"DESCRIBE {_qident(t)}").fetchall()]
+                t_cols = [
+                    r[0] for r in conn.execute(f"DESCRIBE {_qident(t)}").fetchall()
+                ]
                 table_cols_map[t] = list(t_cols)
             t_cols_l = {c.lower() for c in t_cols}
             if label_col.lower() not in t_cols_l:
                 continue
             if fk_col.lower() in t_cols_l:
                 continue
-            existing_sql = ", ".join(f't.{_qident(c)}' for c in t_cols)
+            existing_sql = ", ".join(f"t.{_qident(c)}" for c in t_cols)
             conn.execute(
                 f"CREATE OR REPLACE TABLE {_qident(t)} AS "
                 f"SELECT {existing_sql}, d.{_qident(fk_col)} AS {_qident(fk_col)} "
@@ -607,12 +969,18 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
     # Example: courses.category -> categories.category_id, students.city -> cities.city_id.
     dim_items = [
         (label_col, dim_table, fk_col, dim_label_col)
-        for label_col, (dim_table, fk_col, dim_label_col) in lookup_surrogate_map.items()
+        for label_col, (
+            dim_table,
+            fk_col,
+            dim_label_col,
+        ) in lookup_surrogate_map.items()
     ]
     for src_label, src_table, _src_fk, src_dim_label in dim_items:
         src_cols = table_cols_map.get(src_table)
         if not src_cols:
-            src_cols = [r[0] for r in conn.execute(f"DESCRIBE {_qident(src_table)}").fetchall()]
+            src_cols = [
+                r[0] for r in conn.execute(f"DESCRIBE {_qident(src_table)}").fetchall()
+            ]
             table_cols_map[src_table] = list(src_cols)
         src_cols_l = {c.lower() for c in src_cols}
         for dst_label, dst_table, dst_fk, dst_dim_label in dim_items:
@@ -633,7 +1001,7 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
             if d_src_lbl < 5 or n_src_lbl < 20:
                 continue
 
-            existing_sql = ", ".join(f's.{_qident(c)}' for c in src_cols)
+            existing_sql = ", ".join(f"s.{_qident(c)}" for c in src_cols)
             conn.execute(
                 f"CREATE OR REPLACE TABLE {_qident(src_table)} AS "
                 f"WITH map AS ("
@@ -682,7 +1050,11 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
     table_name_tokens: dict[str, set[str]] = {}
     for t in created:
         raw_name = str(t).lower()
-        clean = raw_name[len(_REL_PREFIX):] if raw_name.startswith(_REL_PREFIX) else raw_name
+        clean = (
+            raw_name[len(_REL_PREFIX) :]
+            if raw_name.startswith(_REL_PREFIX)
+            else raw_name
+        )
         tokens = {raw_name, clean, _singularize_name(clean)}
         parts = [p for p in re.split(r"[^a-z0-9]+", clean) if p]
         s_parts = [_singularize_name(p) for p in parts]
@@ -714,9 +1086,10 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
     edge_candidates: list[tuple[int, str, str, str, str, str]] = []
 
     for i, t1 in enumerate(created):
-        for t2 in created[i + 1:]:
+        for t2 in created[i + 1 :]:
             shared = [
-                c for c in derived_cols.get(t1, set())
+                c
+                for c in derived_cols.get(t1, set())
                 if (
                     c in derived_cols.get(t2, set())
                     and c.lower() not in _SKIP_COLS
@@ -728,9 +1101,16 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
             ]
             if not shared:
                 continue
-            shared.sort(key=lambda c: (_join_col_priority(c, t1, t2), _col_link_score(c), c), reverse=True)
+            shared.sort(
+                key=lambda c: (_join_col_priority(c, t1, t2), _col_link_score(c), c),
+                reverse=True,
+            )
             join_col = shared[0]
-            rel_type = "FK" if any(join_col.lower().endswith(s) for s in _REL_KEY_SUFFIXES) else "SHARED_DIM"
+            rel_type = (
+                "FK"
+                if any(join_col.lower().endswith(s) for s in _REL_KEY_SUFFIXES)
+                else "SHARED_DIM"
+            )
             confidence = "HIGH" if _col_link_score(join_col) >= 90 else "MEDIUM"
             score = _col_link_score(join_col)
             edge_candidates.append((score, t1, t2, join_col, rel_type, confidence))
@@ -773,7 +1153,13 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
             "confidence": confidence,
             "source": "AUTO_STRUCTURE",
         }
-        k = (rel_obj["from_table"], rel_obj["from_column"], rel_obj["to_table"], rel_obj["to_column"], rel_obj["type"])
+        k = (
+            rel_obj["from_table"],
+            rel_obj["from_column"],
+            rel_obj["to_table"],
+            rel_obj["to_column"],
+            rel_obj["type"],
+        )
         if rel_type == "FK":
             if k in seen_fk:
                 continue
@@ -795,7 +1181,13 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
     uniq: list[dict[str, Any]] = []
     seen: set[tuple[str, str, str, str, str]] = set()
     for r in rels:
-        k = (r["from_table"], r["from_column"], r["to_table"], r["to_column"], r["type"])
+        k = (
+            r["from_table"],
+            r["from_column"],
+            r["to_table"],
+            r["to_column"],
+            r["type"],
+        )
         if k in seen:
             continue
         seen.add(k)
@@ -803,7 +1195,9 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
 
     # Generic transitive reduction for FK graph:
     # if A->C is already reachable via A->...->C, drop direct A->C.
-    def _has_path(edges: list[dict[str, Any]], src: str, dst: str, skip_idx: int) -> bool:
+    def _has_path(
+        edges: list[dict[str, Any]], src: str, dst: str, skip_idx: int
+    ) -> bool:
         adj: dict[str, set[str]] = {}
         for i, e in enumerate(edges):
             if i == skip_idx:
@@ -857,13 +1251,16 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
             and str(y.get("to_table", "")) == c
             and x.get("type") == "FK"
             and y.get("type") == "FK"
-            for x in fk_edges for y in fk_edges
+            for x in fk_edges
+            for y in fk_edges
         )
         if has_two_hop:
             two_hop_drop.add(i)
 
     if two_hop_drop:
-        keep_fk: list[dict[str, Any]] = [e for i, e in enumerate(fk_edges) if i not in two_hop_drop]
+        keep_fk: list[dict[str, Any]] = [
+            e for i, e in enumerate(fk_edges) if i not in two_hop_drop
+        ]
         keep_non_fk = [e for e in uniq if e.get("type") != "FK"]
         uniq = keep_fk + keep_non_fk
 
@@ -873,8 +1270,9 @@ def _auto_structure_flat_table(conn, base_table: str, used_tables: set[str]) -> 
 # ── Relationship detection ────────────────────────────────────────────────────
 
 _ID_SUFFIXES = ("_id", "_code", "_key", "_uuid", "_no")
-_SKIP_COLS   = {"id", "row_id", "row_no", "index"}
-_DATE_HINTS  = ("date", "time", "created", "updated", "timestamp")
+_SKIP_COLS = {"id", "row_id", "row_no", "index"}
+_DATE_HINTS = ("date", "time", "created", "updated", "timestamp")
+
 
 # Column name patterns that are likely dimension keys worth linking
 def _is_linkable_col(col: str) -> bool:
@@ -923,15 +1321,12 @@ def _detect_relationships(conn, tables: list[str]) -> list[dict[str, Any]]:
     seen: set[tuple[str, str, str, str]] = set()
 
     for i, t1 in enumerate(tables):
-        for t2 in tables[i + 1:]:
+        for t2 in tables[i + 1 :]:
             cols1 = table_cols.get(t1, {})
             cols2 = table_cols.get(t2, {})
 
             # Find shared normalized column names that look like linkable keys
-            shared = {
-                c for c in cols1
-                if c in cols2 and _is_linkable_col(c)
-            }
+            shared = {c for c in cols1 if c in cols2 and _is_linkable_col(c)}
 
             for col_lower in shared:
                 c1 = cols1[col_lower]
@@ -970,29 +1365,32 @@ def _detect_relationships(conn, tables: list[str]) -> list[dict[str, Any]]:
 
                 if r1 <= r2:
                     from_t, from_c = t1, c1
-                    to_t,   to_c   = t2, c2
+                    to_t, to_c = t2, c2
                 else:
                     from_t, from_c = t2, c2
-                    to_t,   to_c   = t1, c1
+                    to_t, to_c = t1, c1
 
                 # Confidence: HIGH if strong overlap, MEDIUM otherwise
                 overlap_ratio = overlap / min(d1, d2, 100)
                 confidence = "HIGH" if overlap_ratio >= 0.5 else "MEDIUM"
 
-                relationships.append({
-                    "from_table":  from_t,
-                    "from_column": from_c,
-                    "to_table":    to_t,
-                    "to_column":   to_c,
-                    "type":        "FK",
-                    "confidence":  confidence,
-                    "shared_col":  col_lower,
-                })
+                relationships.append(
+                    {
+                        "from_table": from_t,
+                        "from_column": from_c,
+                        "to_table": to_t,
+                        "to_column": to_c,
+                        "type": "FK",
+                        "confidence": confidence,
+                        "shared_col": col_lower,
+                    }
+                )
 
     return relationships
 
 
 # ── Also detect shared value columns (non-ID but matching dimensions) ────────
+
 
 def _detect_shared_dimensions(conn, tables: list[str]) -> list[dict[str, Any]]:
     """
@@ -1019,7 +1417,7 @@ def _detect_shared_dimensions(conn, tables: list[str]) -> list[dict[str, Any]]:
     seen: set[tuple] = set()
 
     for i, t1 in enumerate(tables):
-        for t2 in tables[i + 1:]:
+        for t2 in tables[i + 1 :]:
             cols1 = {c.lower(): c for c in table_text_cols.get(t1, [])}
             cols2 = {c.lower(): c for c in table_text_cols.get(t2, [])}
             shared = set(cols1) & set(cols2)
@@ -1033,7 +1431,7 @@ def _detect_shared_dimensions(conn, tables: list[str]) -> list[dict[str, Any]]:
                 c1, c2 = cols1[col_lower], cols2[col_lower]
                 try:
                     overlap = conn.execute(
-                        f'SELECT COUNT(*) FROM '
+                        f"SELECT COUNT(*) FROM "
                         f'(SELECT DISTINCT "{c1}" FROM "{t1}" LIMIT 50) s1 '
                         f'JOIN (SELECT DISTINCT "{c2}" FROM "{t2}") s2 '
                         f'ON s1."{c1}" = s2."{c2}"'
@@ -1042,15 +1440,17 @@ def _detect_shared_dimensions(conn, tables: list[str]) -> list[dict[str, Any]]:
                     overlap = 0
 
                 if overlap >= 2:
-                    relationships.append({
-                        "from_table":  t1,
-                        "from_column": c1,
-                        "to_table":    t2,
-                        "to_column":   c2,
-                        "type":        "SHARED_DIM",
-                        "confidence":  "MEDIUM",
-                        "shared_col":  col_lower,
-                    })
+                    relationships.append(
+                        {
+                            "from_table": t1,
+                            "from_column": c1,
+                            "to_table": t2,
+                            "to_column": c2,
+                            "type": "SHARED_DIM",
+                            "confidence": "MEDIUM",
+                            "shared_col": col_lower,
+                        }
+                    )
 
     return relationships
 
@@ -1060,39 +1460,97 @@ def ingest_files(
     reset_db: bool = False,
     auto_structure: bool = True,
     merge_confirm: bool = False,
+    discover_files: bool = False,
+    discover_dirs: list[str] | None = None,
+    discover_latest_only: bool = True,
+    include_seen_discovered: bool = False,
+    llm_schema_infer: bool = True,
 ) -> dict[str, Any]:
-    if not files:
-        raise ValueError("No files provided")
-    if len(files) > 1 and not merge_confirm:
-        raise ValueError(
-            "Multiple files detected. Upload one file at a time, or confirm these files are from the same business to merge."
-        )
-
     db_file = Path(DUCKDB_PATH)
     if not db_file.is_absolute():
         db_file = (_PROJECT_ROOT / db_file).resolve()
     upload_dir = db_file.parent / "uploads"
     conn = get_write_connection()
+
+    work_files: list[dict[str, Any]] = []
+    discovered_paths: list[str] = []
     used: set[str] = set()
     created: list[str] = []
     row_counts: dict[str, int] = {}
     generated_relationships: list[dict[str, Any]] = []
     skipped_files: list[dict[str, Any]] = []
+    llm_hints: dict[str, Any] = {}
     anchor_tokens: set[str] | None = None
     anchor_keys: set[str] | None = None
     anchor_topics: set[str] | None = None
     anchor_table: str | None = None
+
     try:
+        _ensure_meta_tables(conn)
+
         if reset_db:
             existing = conn.execute(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
             ).fetchall()
             for (t,) in existing:
                 conn.execute(f'DROP TABLE IF EXISTS "{t}"')
+            _ensure_meta_tables(conn)
+
+        # Normalize incoming file payloads first.
+        seen_payload_paths: set[str] = set()
+        for f in files or []:
+            if not isinstance(f, dict):
+                continue
+            p = str(f.get("path") or "").strip()
+            key = p.lower()
+            if key and key in seen_payload_paths:
+                continue
+            if key:
+                seen_payload_paths.add(key)
+            work_files.append(f)
+
+        if discover_files:
+            raw_dirs = discover_dirs or [
+                str(_PROJECT_ROOT.parent),
+                str(_PROJECT_ROOT),
+                str(upload_dir),
+            ]
+            scan_dirs: list[Path] = []
+            for raw in raw_dirs:
+                try:
+                    p = Path(str(raw).strip())
+                except Exception:
+                    continue
+                if not p.is_absolute():
+                    p = (_PROJECT_ROOT / p).resolve()
+                scan_dirs.append(p)
+
+            discovered_files, discovered_paths = _discover_drop_files(
+                conn,
+                scan_dirs=scan_dirs,
+                include_seen=include_seen_discovered,
+                latest_only=discover_latest_only,
+            )
+            for f in discovered_files:
+                p = str(f.get("path") or "").strip().lower()
+                if p and p in seen_payload_paths:
+                    continue
+                if p:
+                    seen_payload_paths.add(p)
+                work_files.append(f)
+
+        if not work_files:
+            raise ValueError(
+                "No files provided. Upload files[] or enable discover_files to auto-stitch dropped files."
+            )
+        if len(work_files) > 1 and not merge_confirm:
+            raise ValueError(
+                "Multiple files detected. Upload one file at a time, or confirm these files are from the same business to merge."
+            )
 
         used |= _all_main_tables(conn)
 
-        for f in files:
+        for f in work_files:
             fp = _resolve_input_file(f, upload_dir)
             table = _safe_table_name(fp.name, used)
             n = _load_file_to_table(conn, fp, table)
@@ -1108,7 +1566,12 @@ def ingest_files(
                 anchor_table = table
             else:
                 compatible = _is_business_compatible(
-                    anchor_tokens, anchor_keys, anchor_topics, cand_tokens, cand_keys, cand_topics
+                    anchor_tokens,
+                    anchor_keys,
+                    anchor_topics,
+                    cand_tokens,
+                    cand_keys,
+                    cand_topics,
                 )
                 if not compatible:
                     conn.execute(f"DROP TABLE IF EXISTS {_qident(table)}")
@@ -1129,9 +1592,18 @@ def ingest_files(
 
             created.append(table)
             row_counts[table] = n
+            _record_ingested_file(conn, fp, table)
+
+            if llm_schema_infer:
+                hint = _infer_schema_hint_with_llm(conn, table, cols)
+                if hint:
+                    _record_semantic_hint(conn, table, hint)
+                    llm_hints[table] = hint
 
             if auto_structure:
-                rel_tables, rel_counts, rels = _auto_structure_flat_table(conn, table, used)
+                rel_tables, rel_counts, rels = _auto_structure_flat_table(
+                    conn, table, used
+                )
                 if rel_tables:
                     created.extend(rel_tables)
                     row_counts.update(rel_counts)
@@ -1149,8 +1621,14 @@ def ingest_files(
 
         # ── Detect relationships between loaded tables ────────────────────────
         all_tables = [
-            r[0] for r in conn.execute(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+            r[0]
+            for r in conn.execute(
+                """
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema='main'
+                  AND table_name NOT LIKE '_raw_meta_%'
+                """
             ).fetchall()
         ]
         if auto_structure:
@@ -1164,7 +1642,7 @@ def ingest_files(
             dim_rels = _detect_shared_dimensions(conn, all_tables)
 
         # Merge, deduplicate by (from_table, from_column, to_table, to_column)
-        all_rels  = generated_relationships + fk_rels + dim_rels
+        all_rels = generated_relationships + fk_rels + dim_rels
         seen_rels: set[tuple] = set()
         unique_rels: list[dict] = []
         for r in all_rels:
@@ -1176,12 +1654,22 @@ def ingest_files(
                 seen_rels.add(key)
                 unique_rels.append(r)
 
+        try:
+            from db.semantic_layer import build_semantic_catalog
+
+            semantic_catalog = build_semantic_catalog(conn, all_tables)
+        except Exception:
+            semantic_catalog = {"dimensions": [], "metrics": []}
+
         return {
             "tables_created": created,
             "row_counts": row_counts,
             "relationships": unique_rels,
             "auto_structure": auto_structure,
             "skipped_files": skipped_files,
+            "discovered_files": discovered_paths,
+            "llm_schema_hints": llm_hints,
+            "semantic_catalog": semantic_catalog,
             "schema": schema,
         }
     finally:

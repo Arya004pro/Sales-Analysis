@@ -8,40 +8,114 @@ Purpose:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from db.duckdb_connection import get_read_connection
 
 
+_META_SEMANTIC_HINTS = "_raw_meta_semantic_hints"
+
+
 _DIMENSION_HINTS = (
-    "name", "title", "label", "category", "city", "state", "region", "segment",
-    "brand", "warehouse", "store", "location", "driver", "customer", "product",
-    "item", "vendor", "channel", "department", "team",
+    "name",
+    "title",
+    "label",
+    "category",
+    "city",
+    "state",
+    "region",
+    "segment",
+    "brand",
+    "warehouse",
+    "store",
+    "location",
+    "driver",
+    "customer",
+    "product",
+    "item",
+    "vendor",
+    "channel",
+    "department",
+    "team",
 )
 
 _METRIC_HINTS = (
-    "revenue", "sales", "amount", "total", "fare", "earning", "price", "cost",
-    "quantity", "qty", "units", "volume", "discount", "commission", "distance",
-    "duration", "score", "rate", "profit", "margin",
+    "revenue",
+    "sales",
+    "amount",
+    "total",
+    "fare",
+    "earning",
+    "price",
+    "cost",
+    "quantity",
+    "qty",
+    "units",
+    "volume",
+    "discount",
+    "commission",
+    "distance",
+    "duration",
+    "score",
+    "rate",
+    "profit",
+    "margin",
 )
 
 _REVENUE_COL_HINTS = (
-    "revenue", "sales", "amount", "earning", "total", "final", "net", "paid",
+    "revenue",
+    "sales",
+    "amount",
+    "earning",
+    "total",
+    "final",
+    "net",
+    "paid",
 )
 
 _REVENUE_COL_PENALTIES = (
-    "unit", "base", "list", "mrp", "msrp", "catalog", "original",
-    "cost", "tax", "discount", "coupon", "shipping", "commission",
-    "refund", "refunded", "before_",
+    "unit",
+    "base",
+    "list",
+    "mrp",
+    "msrp",
+    "catalog",
+    "original",
+    "cost",
+    "tax",
+    "discount",
+    "coupon",
+    "shipping",
+    "commission",
+    "refund",
+    "refunded",
+    "before_",
 )
 
 _COUNT_ID_STRONG_HINTS = (
-    "order", "transaction", "invoice", "booking", "trip", "ride",
-    "ticket", "request", "visit", "session", "sale", "payment",
+    "order",
+    "transaction",
+    "invoice",
+    "booking",
+    "trip",
+    "ride",
+    "ticket",
+    "request",
+    "visit",
+    "session",
+    "sale",
+    "payment",
 )
 
 _COUNT_ID_WEAK_HINTS = (
-    "row", "line", "item", "detail", "record", "event", "log",
+    "row",
+    "line",
+    "item",
+    "detail",
+    "record",
+    "event",
+    "log",
 )
 
 
@@ -52,16 +126,18 @@ def _is_text(dtype: str) -> bool:
 
 def _is_numeric(dtype: str) -> bool:
     d = dtype.upper()
-    return any(t in d for t in ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL"))
+    return any(
+        t in d
+        for t in ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL")
+    )
 
 
 def _is_date_like(name: str, dtype: str) -> bool:
     n = name.lower()
     d = dtype.upper()
-    return (
-        any(k in n for k in ("date", "time", "timestamp", "created", "updated"))
-        or any(t in d for t in ("DATE", "TIMESTAMP"))
-    )
+    return any(
+        k in n for k in ("date", "time", "timestamp", "created", "updated")
+    ) or any(t in d for t in ("DATE", "TIMESTAMP"))
 
 
 def _normalize_token(text: str) -> str:
@@ -84,8 +160,46 @@ def _collect_columns(conn, tables: list[str]) -> dict[str, list[tuple[str, str]]
     out: dict[str, list[tuple[str, str]]] = {}
     for table in tables:
         try:
-            cols = [(c[0], c[1].upper()) for c in conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
             out[table] = cols
+        except Exception:
+            continue
+    return out
+
+
+def _merge_alias_lists(existing: list[str], extra: list[str]) -> list[str]:
+    seen: set[str] = set()
+    merged: list[str] = []
+    for a in existing + extra:
+        s = str(a or "").strip().lower()
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        merged.append(s)
+    return merged
+
+
+def _load_llm_hints(conn, tables: list[str]) -> dict[str, dict[str, Any]]:
+    if not tables:
+        return {}
+    try:
+        placeholders = ", ".join(["?"] * len(tables))
+        rows = conn.execute(
+            f'SELECT table_name, hint_json FROM "{_META_SEMANTIC_HINTS}" WHERE table_name IN ({placeholders})',
+            tables,
+        ).fetchall()
+    except Exception:
+        return {}
+
+    out: dict[str, dict[str, Any]] = {}
+    for table_name, hint_json in rows:
+        try:
+            parsed = json.loads(str(hint_json or ""))
+            if isinstance(parsed, dict):
+                out[str(table_name)] = parsed
         except Exception:
             continue
     return out
@@ -109,8 +223,11 @@ def _score_revenue_column_name(col_name: str) -> int:
 
 def _pick_primary_revenue_column(cols: list[tuple[str, str]]) -> str | None:
     numeric_cols = [
-        c.lower() for c, dtype in cols
-        if _is_numeric(dtype) and not c.lower().endswith("_id") and not _is_date_like(c, dtype)
+        c.lower()
+        for c, dtype in cols
+        if _is_numeric(dtype)
+        and not c.lower().endswith("_id")
+        and not _is_date_like(c, dtype)
     ]
     if not numeric_cols:
         return None
@@ -129,7 +246,9 @@ def _pick_primary_revenue_column(cols: list[tuple[str, str]]) -> str | None:
 
 
 def _pick_count_identifier(conn, table: str, cols: list[tuple[str, str]]) -> str | None:
-    id_cols = [c.lower() for c, _ in cols if c.lower().endswith("_id") or c.lower() == "id"]
+    id_cols = [
+        c.lower() for c, _ in cols if c.lower().endswith("_id") or c.lower() == "id"
+    ]
     if not id_cols:
         return None
 
@@ -167,7 +286,9 @@ def _pick_count_identifier(conn, table: str, cols: list[tuple[str, str]]) -> str
 
 
 def build_semantic_catalog(conn, tables: list[str]) -> dict[str, Any]:
+    tables = [t for t in tables if t and not str(t).startswith("_raw_meta_")]
     columns_by_table = _collect_columns(conn, tables)
+    llm_hints = _load_llm_hints(conn, tables)
     dimensions: list[dict[str, Any]] = []
     metrics: list[dict[str, Any]] = []
 
@@ -185,7 +306,13 @@ def build_semantic_catalog(conn, tables: list[str]) -> dict[str, Any]:
 
             base = _semantic_name_from_col(n)
             key_col = None
-            for cand in (f"{base}_id", f"{base}_code", f"{base}_key", f"{base}_uuid", "id"):
+            for cand in (
+                f"{base}_id",
+                f"{base}_code",
+                f"{base}_key",
+                f"{base}_uuid",
+                "id",
+            ):
                 if cand in col_set:
                     key_col = cand
                     break
@@ -206,6 +333,21 @@ def build_semantic_catalog(conn, tables: list[str]) -> dict[str, Any]:
                 }
             )
 
+    for d in dimensions:
+        hint = llm_hints.get(d["table"], {})
+        dim_aliases = hint.get("dimension_aliases") if isinstance(hint, dict) else {}
+        if not isinstance(dim_aliases, dict):
+            continue
+        wanted = {_normalize_token(d["name"]), _normalize_token(d["label_column"])}
+        extra: list[str] = []
+        for k, vals in dim_aliases.items():
+            if _normalize_token(str(k)) not in wanted:
+                continue
+            if isinstance(vals, list):
+                extra.extend([str(v) for v in vals])
+        if extra:
+            d["aliases"] = _merge_alias_lists(d["aliases"], extra)
+
     # Metrics
     seen_metric_keys: set[tuple[str, str, str]] = set()
     for table, cols in columns_by_table.items():
@@ -223,7 +365,18 @@ def build_semantic_catalog(conn, tables: list[str]) -> dict[str, Any]:
             semantic = _semantic_name_from_col(n)
             aliases = {semantic, n.replace("_", " ")}
 
-            if any(k in n for k in ("revenue", "sales", "amount", "fare", "earning", "total", "final")):
+            if any(
+                k in n
+                for k in (
+                    "revenue",
+                    "sales",
+                    "amount",
+                    "fare",
+                    "earning",
+                    "total",
+                    "final",
+                )
+            ):
                 aliases.update({"revenue", "sales", "earnings"})
             if any(k in n for k in ("quantity", "qty", "units", "volume")):
                 aliases.update({"quantity", "units", "volume"})
@@ -254,7 +407,12 @@ def build_semantic_catalog(conn, tables: list[str]) -> dict[str, Any]:
                         "table": table,
                         "column": n,
                         "agg": "avg",
-                        "aliases": sorted({f"average {semantic.replace('_', ' ')}", f"avg {semantic.replace('_', ' ')}"}),
+                        "aliases": sorted(
+                            {
+                                f"average {semantic.replace('_', ' ')}",
+                                f"avg {semantic.replace('_', ' ')}",
+                            }
+                        ),
                     }
                 )
                 seen_metric_keys.add(avg_key)
@@ -267,8 +425,15 @@ def build_semantic_catalog(conn, tables: list[str]) -> dict[str, Any]:
                     "table": table,
                     "column": count_id,
                     "agg": "count_distinct",
-                    "aliases": ["count", "total count", "number of", "how many",
-                                "records", "entries", "transactions"],
+                    "aliases": [
+                        "count",
+                        "total count",
+                        "number of",
+                        "how many",
+                        "records",
+                        "entries",
+                        "transactions",
+                    ],
                 }
             )
 
@@ -292,6 +457,22 @@ def build_semantic_catalog(conn, tables: list[str]) -> dict[str, Any]:
                     ],
                 }
             )
+
+    for m in metrics:
+        hint = llm_hints.get(m["table"], {})
+        metric_aliases = hint.get("metric_aliases") if isinstance(hint, dict) else {}
+        if not isinstance(metric_aliases, dict):
+            continue
+        metric_col = str(m.get("column") or "")
+        wanted = {_normalize_token(m["name"]), _normalize_token(metric_col)}
+        extra: list[str] = []
+        for k, vals in metric_aliases.items():
+            if _normalize_token(str(k)) not in wanted:
+                continue
+            if isinstance(vals, list):
+                extra.extend([str(v) for v in vals])
+        if extra:
+            m["aliases"] = _merge_alias_lists(m["aliases"], extra)
 
     return {"dimensions": dimensions, "metrics": metrics}
 
@@ -345,12 +526,14 @@ def render_semantic_layer_lines(conn, tables: list[str]) -> list[str]:
         "-------------------------",
         "- Prefer semantic aliases from this section over hardcoded column assumptions.",
         "- If a label is non-unique, group by key+label when key is available.",
-        '- For counts, prefer COUNT(DISTINCT order-like id) over COUNT(*).',
+        "- For counts, prefer COUNT(DISTINCT order-like id) over COUNT(*).",
     ]
     return lines
 
 
-def resolve_intent_with_semantic_layer(parsed: dict[str, Any], user_query: str = "") -> dict[str, Any]:
+def resolve_intent_with_semantic_layer(
+    parsed: dict[str, Any], user_query: str = ""
+) -> dict[str, Any]:
     """
     Resolve parsed entity/metric tokens using live semantic catalog.
     Keeps compatibility with existing downstream SQL generation contracts.
@@ -389,7 +572,9 @@ def resolve_intent_with_semantic_layer(parsed: dict[str, Any], user_query: str =
     if entity and entity not in all_cols:
         target = _normalize_token(entity)
         for d in catalog["dimensions"]:
-            alias_tokens = {_normalize_token(d["name"])} | {_normalize_token(a) for a in d["aliases"]}
+            alias_tokens = {_normalize_token(d["name"])} | {
+                _normalize_token(a) for a in d["aliases"]
+            }
             if target in alias_tokens:
                 out["entity"] = d["label_column"]
                 out["semantic_entity"] = d["name"]
@@ -408,7 +593,9 @@ def resolve_intent_with_semantic_layer(parsed: dict[str, Any], user_query: str =
         target = _normalize_token(metric)
         candidates: list[tuple[int, dict[str, Any]]] = []
         for m in catalog["metrics"]:
-            alias_tokens = {_normalize_token(m["name"])} | {_normalize_token(a) for a in m["aliases"]}
+            alias_tokens = {_normalize_token(m["name"])} | {
+                _normalize_token(a) for a in m["aliases"]
+            }
             if target not in alias_tokens:
                 continue
 
@@ -420,17 +607,32 @@ def resolve_intent_with_semantic_layer(parsed: dict[str, Any], user_query: str =
             if m["agg"] == "sum":
                 score += 1
             if m["agg"] == "ratio_sum_count_distinct" and (
-                "aov" in target or "average order value" in target or "average basket" in target
+                "aov" in target
+                or "average order value" in target
+                or "average basket" in target
             ):
                 score += 8
 
             if target in {"revenue", "sales", "earning", "earnings", "income"}:
-                if any(k in col for k in ("revenue", "sales", "amount", "fare", "earning", "total", "final")):
+                if any(
+                    k in col
+                    for k in (
+                        "revenue",
+                        "sales",
+                        "amount",
+                        "fare",
+                        "earning",
+                        "total",
+                        "final",
+                    )
+                ):
                     score += 5
                 if "unit_price" in col or col.startswith("unit_"):
                     score -= 4
 
-            if target in {"quantity", "units", "volume"} and any(k in col for k in ("quantity", "qty", "units", "volume")):
+            if target in {"quantity", "units", "volume"} and any(
+                k in col for k in ("quantity", "qty", "units", "volume")
+            ):
                 score += 4
 
             if target.startswith("avg") and m["agg"] == "avg":
@@ -445,7 +647,7 @@ def resolve_intent_with_semantic_layer(parsed: dict[str, Any], user_query: str =
             if best["agg"] == "sum":
                 out["metric"] = best["column"]
             elif best["agg"] == "avg":
-                out["metric"] = f'avg_{best["column"]}'
+                out["metric"] = f"avg_{best['column']}"
             elif best["agg"] == "ratio_sum_count_distinct":
                 out["metric"] = "aov"
                 out["_aov_revenue_col"] = best["numerator_column"]

@@ -20,7 +20,7 @@ _REL_PREFIX = "_raw_rel_"
 
 def _base_display_name(name: str) -> str:
     if name.startswith(_REL_PREFIX):
-        return name[len(_REL_PREFIX):]
+        return name[len(_REL_PREFIX) :]
     return name
 
 
@@ -39,14 +39,22 @@ def _build_display_name_map(table_names: list[str]) -> dict[str, str]:
     return mapping
 
 
-def _map_relationships_for_display(rels: list[dict[str, Any]], name_map: dict[str, str]) -> list[dict[str, Any]]:
+def _map_relationships_for_display(
+    rels: list[dict[str, Any]], name_map: dict[str, str]
+) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for r in rels or []:
-        out.append({
-            **r,
-            "from_table": name_map.get(str(r.get("from_table", "")), str(r.get("from_table", ""))),
-            "to_table": name_map.get(str(r.get("to_table", "")), str(r.get("to_table", ""))),
-        })
+        out.append(
+            {
+                **r,
+                "from_table": name_map.get(
+                    str(r.get("from_table", "")), str(r.get("from_table", ""))
+                ),
+                "to_table": name_map.get(
+                    str(r.get("to_table", "")), str(r.get("to_table", ""))
+                ),
+            }
+        )
     return out
 
 
@@ -110,7 +118,8 @@ def _filter_to_primary_component(
 
     kept_tables = [t for t in tables if str(t.get("table", "")) in best]
     kept_rels = [
-        r for r in relationships
+        r
+        for r in relationships
         if str(r.get("from_table", "")) in best and str(r.get("to_table", "")) in best
     ]
     return kept_tables, kept_rels
@@ -176,7 +185,11 @@ async def handler(request: ApiRequest[Any], ctx: FlowContext[Any]) -> ApiRespons
 
     schema_state = await ctx.state.get("schema_registry", "current")
     auto_structure = bool((schema_state or {}).get("auto_structure", False))
-    latest_tables = [str(t) for t in ((schema_state or {}).get("tables_created") or []) if str(t).strip()]
+    latest_tables = [
+        str(t)
+        for t in ((schema_state or {}).get("tables_created") or [])
+        if str(t).strip()
+    ]
 
     conn = get_read_connection()
     try:
@@ -185,6 +198,7 @@ async def handler(request: ApiRequest[Any], ctx: FlowContext[Any]) -> ApiRespons
             SELECT table_name
             FROM information_schema.tables
             WHERE table_schema='main'
+              AND table_name NOT LIKE '_raw_meta_%'
             ORDER BY table_name
             """
         ).fetchall()
@@ -226,12 +240,13 @@ async def handler(request: ApiRequest[Any], ctx: FlowContext[Any]) -> ApiRespons
 
     mapped_relationships = _map_relationships_for_display(
         (schema_state or {}).get("relationships", []),
-        display_map if 'display_map' in locals() else {},
+        display_map if "display_map" in locals() else {},
     )
 
     shown_tables = {t["table"] for t in table_schema}
     mapped_relationships = [
-        r for r in mapped_relationships
+        r
+        for r in mapped_relationships
         if r.get("from_table") in shown_tables and r.get("to_table") in shown_tables
     ]
     mapped_relationships = _filter_relationships_by_visible_columns(
