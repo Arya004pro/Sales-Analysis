@@ -1,7 +1,8 @@
-"""Step: Anomaly Detection.
+"""Revenue decomposition step.
 
-Detects statistical outliers from query result rows before formatting.
-Uses shared helpers from utils.anomaly_utils.
+Builds a period-over-period revenue bridge for comparison-style queries.
+Pipeline position:
+  ... -> query::detect.anomalies -> query::decompose.revenue -> query::format.result
 """
 
 from __future__ import annotations
@@ -11,6 +12,8 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+from motia import FlowContext, queue
+
 _STEPS_DIR = os.path.dirname(os.path.abspath(__file__))
 _MOTIA_DIR = os.path.dirname(_STEPS_DIR)
 _PROJECT_ROOT = os.path.dirname(_MOTIA_DIR)
@@ -18,34 +21,35 @@ for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from motia import FlowContext, queue
-from utils.anomaly_utils import detect_anomalies
-
 config = {
-    "name": "AnomalyScanner",
-    "description": (
-        "Scans result values for statistical outliers and forwards anomaly metadata."
-    ),
+    "name": "RevenueDecomposition",
+    "description": "Computes a revenue bridge decomposition for period comparison queries.",
     "flows": ["sales-analytics-flow"],
-    "triggers": [queue("query::detect.anomalies")],
-    "enqueues": ["query::decompose.revenue"],
+    "triggers": [queue("query::decompose.revenue")],
+    "enqueues": ["query::format.result"],
 }
 
 
 async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
+    from utils.revenue_decomposition import build_revenue_decomposition
+
     query_id = input_data.get("queryId")
     parsed = input_data.get("parsed", {}) or {}
     results = input_data.get("results", []) or []
+    period_labels = input_data.get("period_labels", []) or []
 
-    qt = parsed.get("query_type", "")
-    anomalies = detect_anomalies(results, qt)
-    flagged_cnt = len(anomalies.get("items", []))
+    decomposition = build_revenue_decomposition(
+        rows=results,
+        parsed=parsed,
+        period_labels=period_labels,
+    )
+
     ctx.logger.info(
-        "Anomaly detection complete",
+        "Revenue decomposition complete",
         {
             "queryId": query_id,
-            "flagged": flagged_cnt,
-            "value_key": anomalies.get("value_key"),
+            "applies": bool(decomposition.get("applies")),
+            "reason": decomposition.get("reason"),
         },
     )
 
@@ -58,18 +62,18 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             query_id,
             {
                 **qs,
-                "anomalies": anomalies,
+                "revenue_decomposition": decomposition,
                 "updatedAt": now_iso,
-                "status_timestamps": {**prev_ts, "anomaly_detected": now_iso},
+                "status_timestamps": {**prev_ts, "revenue_decomposed": now_iso},
             },
         )
 
     await ctx.enqueue(
         {
-            "topic": "query::decompose.revenue",
+            "topic": "query::format.result",
             "data": {
                 **input_data,
-                "anomalies": anomalies,
+                "revenue_decomposition": decomposition,
             },
         }
     )

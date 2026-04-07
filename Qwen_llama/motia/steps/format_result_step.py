@@ -42,19 +42,33 @@ config = {
 }
 
 _PALETTE = [
-    "rgba(99,179,237,0.85)",  "rgba(104,211,145,0.85)",
-    "rgba(246,173,85,0.85)",  "rgba(252,129,129,0.85)",
-    "rgba(154,117,221,0.85)", "rgba(79,209,197,0.85)",
-    "rgba(246,135,179,0.85)", "rgba(183,148,255,0.85)",
+    "rgba(99,179,237,0.85)",
+    "rgba(104,211,145,0.85)",
+    "rgba(246,173,85,0.85)",
+    "rgba(252,129,129,0.85)",
+    "rgba(154,117,221,0.85)",
+    "rgba(79,209,197,0.85)",
+    "rgba(246,135,179,0.85)",
+    "rgba(183,148,255,0.85)",
 ]
 _BORDERS = [c.replace("0.85", "1") for c in _PALETTE]
 
 # Month abbreviations for label formatting
 _MONTH_ABBR = {
-    "01": "Jan", "02": "Feb", "03": "Mar", "04": "Apr",
-    "05": "May", "06": "Jun", "07": "Jul", "08": "Aug",
-    "09": "Sep", "10": "Oct", "11": "Nov", "12": "Dec",
+    "01": "Jan",
+    "02": "Feb",
+    "03": "Mar",
+    "04": "Apr",
+    "05": "May",
+    "06": "Jun",
+    "07": "Jul",
+    "08": "Aug",
+    "09": "Sep",
+    "10": "Oct",
+    "11": "Nov",
+    "12": "Dec",
 }
+
 
 def _format_bucket_label(raw_label: str, bucket: str) -> str:
     """Convert raw bucket label (e.g. '2024-01') to a human-readable string."""
@@ -76,10 +90,25 @@ def _infer_currency(metric: str, hint: str = "") -> str:
         return "Rs "
     if re.search(r"\b(usd|dollar|dollars)\b", f"{m} {h}") or "$" in m or "$" in h:
         return "$"
-    if any(x in m for x in ["fare", "earnings", "commission", "revenue",
-                              "amount", "price", "total", "salary", "sales", "profit"]):
+    if any(
+        x in m
+        for x in [
+            "fare",
+            "earnings",
+            "commission",
+            "revenue",
+            "amount",
+            "price",
+            "total",
+            "salary",
+            "sales",
+            "profit",
+        ]
+    ):
         return ""
-    if any(x in m for x in ["count", "quantity", "units", "distance", "duration", "rides"]):
+    if any(
+        x in m for x in ["count", "quantity", "units", "distance", "duration", "rides"]
+    ):
         return ""
     return ""
 
@@ -223,7 +252,11 @@ def _tooltip_fn(metric: str, currency: str) -> str:
 
 
 def _cmp_tooltip_fn(metric: str, currency: str) -> str:
-    dec = "{minimumFractionDigits:2,maximumFractionDigits:2}" if currency else "{maximumFractionDigits:0}"
+    dec = (
+        "{minimumFractionDigits:2,maximumFractionDigits:2}"
+        if currency
+        else "{maximumFractionDigits:0}"
+    )
     pfx = "Rs " if currency == "Rs " else currency.replace("$", "\\u0024")
     return (
         f"function(c){{"
@@ -234,21 +267,22 @@ def _cmp_tooltip_fn(metric: str, currency: str) -> str:
     )
 
 
-def _make_base(metric: str, currency: str, entity: str,
-               legend: bool = False, index_axis: str = "y") -> dict:
+def _make_base(
+    metric: str, currency: str, entity: str, legend: bool = False, index_axis: str = "y"
+) -> dict:
     metric_lbl = _metric_label(metric, currency)
     entity_lbl = _entity_label(entity)
 
     if index_axis == "y":
         x_title = metric_lbl
         y_title = entity_lbl
-        x_tick  = _tick_fn(metric, currency)
-        y_tick  = None
+        x_tick = _tick_fn(metric, currency)
+        y_tick = None
     else:
         x_title = entity_lbl
         y_title = metric_lbl
-        x_tick  = None
-        y_tick  = _tick_fn(metric, currency)
+        x_tick = None
+        y_tick = _tick_fn(metric, currency)
 
     x_ticks: dict = {"color": "#94a3b8", "font": {"size": 11}}
     if x_tick:
@@ -278,29 +312,43 @@ def _make_base(metric: str, currency: str, entity: str,
         },
         "scales": {
             "x": {
-                "title": {"display": bool(x_title), "text": x_title,
-                          "color": "#94a3b8", "font": {"size": 11, "weight": "normal"}},
+                "title": {
+                    "display": bool(x_title),
+                    "text": x_title,
+                    "color": "#94a3b8",
+                    "font": {"size": 11, "weight": "normal"},
+                },
                 "ticks": x_ticks,
-                "grid":  {"color": "rgba(255,255,255,0.05)"},
+                "grid": {"color": "rgba(255,255,255,0.05)"},
             },
             "y": {
-                "title": {"display": bool(y_title), "text": y_title,
-                          "color": "#94a3b8", "font": {"size": 11, "weight": "normal"}},
-                "ticks":       y_ticks,
-                "grid":        {"color": "rgba(255,255,255,0.05)"},
+                "title": {
+                    "display": bool(y_title),
+                    "text": y_title,
+                    "color": "#94a3b8",
+                    "font": {"size": 11, "weight": "normal"},
+                },
+                "ticks": y_ticks,
+                "grid": {"color": "rgba(255,255,255,0.05)"},
                 "beginAtZero": True,
             },
         },
     }
 
 
-def _make_line_chart(labels: list, values: list, metric: str,
-                     currency: str, title: str, subtitle: str,
-                     bucket: str) -> dict:
+def _make_line_chart(
+    labels: list,
+    values: list,
+    metric: str,
+    currency: str,
+    title: str,
+    subtitle: str,
+    bucket: str,
+) -> dict:
     """Build a Chart.js line chart config for time_series results."""
     mlabel = _metric_label(metric, currency)
     tick_fn = _tick_fn(metric, currency)
-    tip_fn  = _tooltip_fn(metric, currency)
+    tip_fn = _tooltip_fn(metric, currency)
 
     max_rotation = 45 if len(labels) > 6 else 0
 
@@ -308,54 +356,67 @@ def _make_line_chart(labels: list, values: list, metric: str,
         "type": "line",
         "data": {
             "labels": labels,
-            "datasets": [{
-                "label": mlabel,
-                "data":  values,
-                "borderColor":           "rgba(99,179,237,1)",
-                "backgroundColor":       "rgba(99,179,237,0.12)",
-                "pointBackgroundColor":  "rgba(99,179,237,1)",
-                "pointBorderColor":      "#1a1d27",
-                "pointRadius":           4,
-                "pointHoverRadius":      6,
-                "borderWidth":           2,
-                "fill":                  True,
-                "tension":               0.35,
-            }],
+            "datasets": [
+                {
+                    "label": mlabel,
+                    "data": values,
+                    "borderColor": "rgba(99,179,237,1)",
+                    "backgroundColor": "rgba(99,179,237,0.12)",
+                    "pointBackgroundColor": "rgba(99,179,237,1)",
+                    "pointBorderColor": "#1a1d27",
+                    "pointRadius": 4,
+                    "pointHoverRadius": 6,
+                    "borderWidth": 2,
+                    "fill": True,
+                    "tension": 0.35,
+                }
+            ],
         },
         "options": {
-            "responsive":         True,
+            "responsive": True,
             "maintainAspectRatio": True,
             "interaction": {"mode": "index", "intersect": False},
             "plugins": {
                 "legend": {"display": False},
                 "tooltip": {
-                    "enabled":         True,
+                    "enabled": True,
                     "backgroundColor": "#1e2130",
-                    "titleColor":      "#e2e8f0",
-                    "bodyColor":       "#94a3b8",
-                    "borderColor":     "#2d3148",
-                    "borderWidth":     1,
-                    "callbacks":       {"label": tip_fn},
+                    "titleColor": "#e2e8f0",
+                    "bodyColor": "#94a3b8",
+                    "borderColor": "#2d3148",
+                    "borderWidth": 1,
+                    "callbacks": {"label": tip_fn},
                 },
             },
             "scales": {
                 "x": {
-                    "title": {"display": True, "text": bucket.capitalize(),
-                              "color": "#94a3b8", "font": {"size": 11}},
+                    "title": {
+                        "display": True,
+                        "text": bucket.capitalize(),
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
+                    },
                     "ticks": {
-                        "color":       "#94a3b8",
-                        "font":        {"size": 11},
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
                         "maxRotation": max_rotation,
                         "minRotation": max_rotation,
                     },
                     "grid": {"color": "rgba(255,255,255,0.05)"},
                 },
                 "y": {
-                    "title": {"display": True, "text": mlabel,
-                              "color": "#94a3b8", "font": {"size": 11}},
-                    "ticks":       {"color": "#94a3b8", "font": {"size": 11},
-                                    "callback": tick_fn},
-                    "grid":        {"color": "rgba(255,255,255,0.05)"},
+                    "title": {
+                        "display": True,
+                        "text": mlabel,
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
+                    },
+                    "ticks": {
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
+                        "callback": tick_fn,
+                    },
+                    "grid": {"color": "rgba(255,255,255,0.05)"},
                     "beginAtZero": False,
                 },
             },
@@ -365,19 +426,29 @@ def _make_line_chart(labels: list, values: list, metric: str,
 
 
 def _bar(labels, values, metric, currency, entity, title, subtitle):
-    base    = _make_base(metric, currency, entity, index_axis="y")
+    base = _make_base(metric, currency, entity, index_axis="y")
     tooltip = _tooltip_fn(metric, currency)
     base["plugins"]["tooltip"]["callbacks"] = {"label": tooltip}
     cfg = {
         "type": "bar",
-        "data": {"labels": labels, "datasets": [{
-            "label": _metric_label(metric, currency),
-            "data": values,
-            "backgroundColor": [_PALETTE[i % len(_PALETTE)] for i in range(len(labels))],
-            "borderColor":     [_BORDERS[i % len(_PALETTE)] for i in range(len(labels))],
-            "borderWidth": 1, "borderRadius": 4,
-            "minBarLength": 6,
-        }]},
+        "data": {
+            "labels": labels,
+            "datasets": [
+                {
+                    "label": _metric_label(metric, currency),
+                    "data": values,
+                    "backgroundColor": [
+                        _PALETTE[i % len(_PALETTE)] for i in range(len(labels))
+                    ],
+                    "borderColor": [
+                        _BORDERS[i % len(_PALETTE)] for i in range(len(labels))
+                    ],
+                    "borderWidth": 1,
+                    "borderRadius": 4,
+                    "minBarLength": 6,
+                }
+            ],
+        },
         "options": base,
     }
     return {"title": title, "subtitle": subtitle, "prefix": currency, "config": cfg}
@@ -408,7 +479,7 @@ def _token_summary(usage, totals):
             completion = f"{0:>4}"
             total = f"{0:>5}"
         lines.append(
-            f"  {e.get('step','?'):<20} {short:<28} "
+            f"  {e.get('step', '?'):<20} {short:<28} "
             f"prompt={prompt}  completion={completion}  total={total}"
         )
 
@@ -416,9 +487,9 @@ def _token_summary(usage, totals):
         lines.append("  " + "" * 70)
         lines.append(
             f"  {'TOTAL':<20} {'':28} "
-            f"prompt={totals.get('prompt_tokens',0):>5}  "
-            f"completion={totals.get('completion_tokens',0):>4}  "
-            f"total={totals.get('total_tokens',0):>5}"
+            f"prompt={totals.get('prompt_tokens', 0):>5}  "
+            f"completion={totals.get('completion_tokens', 0):>4}  "
+            f"total={totals.get('total_tokens', 0):>5}"
         )
     elif llm_rows == 0:
         lines.append("  LLM tokens: 0 (no LLM used)")
@@ -438,7 +509,7 @@ def _fmt_indian(v: Any, currency: str, decimals: int = 2) -> str:
     abs_val = abs(val)
 
     s = f"{abs_val:.{decimals}f}"
-    parts = s.split('.')
+    parts = s.split(".")
     integer_part = parts[0]
     decimal_part = parts[1] if len(parts) > 1 else ""
 
@@ -468,13 +539,15 @@ def _delta_str(v1, v2, currency):
     if v1 is None or v2 is None:
         return "N/A"
     delta = v2 - v1
-    sign  = "+" if delta >= 0 else ""
-    pct   = (delta / v1 * 100) if v1 != 0 else float("inf")
+    sign = "+" if delta >= 0 else ""
+    pct = (delta / v1 * 100) if v1 != 0 else float("inf")
     pct_s = f"{sign}{pct:.1f}%" if pct != float("inf") else "new"
     return f"{sign}{_fmt_indian(abs(delta), currency)} ({pct_s})"
 
 
-def _insights_time_series(labels: list[str], values: list[float], currency: str) -> list[str]:
+def _insights_time_series(
+    labels: list[str], values: list[float], currency: str
+) -> list[str]:
     if not labels or not values:
         return []
     insights: list[str] = []
@@ -482,9 +555,11 @@ def _insights_time_series(labels: list[str], values: list[float], currency: str)
     if first:
         pct = ((last - first) / first) * 100
         dir_word = "up" if pct >= 0 else "down"
-        insights.append(f"Overall trend: {dir_word} {abs(pct):.1f}% from {labels[0]} to {labels[-1]}.")
+        insights.append(
+            f"Overall trend: {dir_word} {abs(pct):.1f}% from {labels[0]} to {labels[-1]}."
+        )
     peak_idx = max(range(len(values)), key=lambda i: values[i])
-    low_idx  = min(range(len(values)), key=lambda i: values[i])
+    low_idx = min(range(len(values)), key=lambda i: values[i])
     insights.append(
         f"Peak period: {labels[peak_idx]} ({_fmt_indian(values[peak_idx], currency)}), "
         f"lowest: {labels[low_idx]} ({_fmt_indian(values[low_idx], currency)})."
@@ -532,9 +607,17 @@ def _insights_ranked_by_period(items: list[dict], currency: str) -> list[str]:
 
     leaders = []
     for p in periods:
-        rows = sorted(by_period[p], key=lambda r: float(r.get("raw_value", 0) or 0), reverse=True)
+        rows = sorted(
+            by_period[p], key=lambda r: float(r.get("raw_value", 0) or 0), reverse=True
+        )
         if rows:
-            leaders.append((p, str(rows[0].get("name", "?")), float(rows[0].get("raw_value", 0) or 0)))
+            leaders.append(
+                (
+                    p,
+                    str(rows[0].get("name", "?")),
+                    float(rows[0].get("raw_value", 0) or 0),
+                )
+            )
 
     unique_leaders = {n for _, n, _ in leaders}
     insights = [
@@ -554,7 +637,10 @@ def _is_binary_status_split(entity: str, items: list[dict]) -> bool:
 
 
 def _insights_binary_status_split(entity: str, items: list[dict]) -> list[str]:
-    raw = {str(i.get("name", "")).strip().lower(): float(i.get("raw_value", 0) or 0) for i in items}
+    raw = {
+        str(i.get("name", "")).strip().lower(): float(i.get("raw_value", 0) or 0)
+        for i in items
+    }
     total = sum(raw.values())
     if total <= 0:
         return []
@@ -615,6 +701,75 @@ def _inject_ai_insights(formatted_text: str, insights: list[str]) -> str:
     return formatted_text + block
 
 
+def _revenue_bridge_lines(decomposition: dict[str, Any], currency: str) -> list[str]:
+    if not isinstance(decomposition, dict):
+        return []
+    if not decomposition.get("applies"):
+        return []
+
+    summary = decomposition.get("summary") or {}
+    bridge = decomposition.get("bridge") or {}
+    mix_shift = decomposition.get("mix_shift") or {}
+
+    p1 = str(summary.get("period_1") or "Period 1")
+    p2 = str(summary.get("period_2") or "Period 2")
+    total_1 = float(summary.get("total_1") or 0.0)
+    total_2 = float(summary.get("total_2") or 0.0)
+    net_change = float(summary.get("net_change") or 0.0)
+    change_pct = summary.get("change_pct")
+
+    new_gain = float(bridge.get("new_entity_gain") or 0.0)
+    expansion = float(bridge.get("existing_entity_expansion") or 0.0)
+    contraction = float(bridge.get("existing_entity_contraction") or 0.0)
+    lost_drag = float(bridge.get("lost_entity_drag") or 0.0)
+
+    pct_txt = "N/A"
+    if isinstance(change_pct, (int, float)):
+        pct_txt = f"{change_pct:+.1f}%"
+
+    lines = [
+        f"Revenue Bridge ({p1} -> {p2})",
+        f"- Start ({p1}): {_fmt_indian(total_1, currency)}",
+        f"- End   ({p2}): {_fmt_indian(total_2, currency)}",
+        f"- Net change: {_fmt_indian(net_change, currency)} ({pct_txt})",
+        "- Decomposition:",
+        f"  + New entity gain: {_fmt_indian(new_gain, currency)}",
+        f"  + Existing entity expansion: {_fmt_indian(expansion, currency)}",
+        f"  - Existing entity contraction: {_fmt_indian(contraction, currency)}",
+        f"  - Lost entity drag: {_fmt_indian(lost_drag, currency)}",
+    ]
+
+    positives = mix_shift.get("top_positive") or []
+    negatives = mix_shift.get("top_negative") or []
+
+    if positives:
+        lines.append("- Top positive mix shifts:")
+        for row in positives[:3]:
+            name = str(row.get("name") or "?")
+            share_delta = float(row.get("share_delta_pct") or 0.0)
+            lines.append(f"  + {name}: {share_delta:+.2f}pp")
+
+    if negatives:
+        lines.append("- Top negative mix shifts:")
+        for row in negatives[:3]:
+            name = str(row.get("name") or "?")
+            share_delta = float(row.get("share_delta_pct") or 0.0)
+            lines.append(f"  - {name}: {share_delta:+.2f}pp")
+
+    return lines
+
+
+def _inject_revenue_bridge(formatted_text: str, lines: list[str]) -> str:
+    if not lines:
+        return formatted_text
+    block = "\n\n" + "\n".join(lines)
+    marker = "\n\n Token Usage "
+    if marker in formatted_text:
+        head, tail = formatted_text.split(marker, 1)
+        return head + block + marker + tail
+    return formatted_text + block
+
+
 def _compress_rows(rows: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
     if not rows:
         return []
@@ -625,7 +780,9 @@ def _compress_rows(rows: list[dict[str, Any]], limit: int = 12) -> list[dict[str
     return rows[:head] + rows[-tail:]
 
 
-def _should_skip_ai_insights(parsed: dict[str, Any], rows: list[dict[str, Any]], anomalies: dict[str, Any]) -> bool:
+def _should_skip_ai_insights(
+    parsed: dict[str, Any], rows: list[dict[str, Any]], anomalies: dict[str, Any]
+) -> bool:
     if not rows:
         return True
     if len(rows) < 3:
@@ -641,14 +798,19 @@ def _should_skip_ai_insights(parsed: dict[str, Any], rows: list[dict[str, Any]],
     return False
 
 
-def _call_ai_insights(user_query: str, parsed: dict[str, Any], rows: list[dict[str, Any]], anomalies: dict[str, Any]) -> tuple[list[str], dict]:
+def _call_ai_insights(
+    user_query: str,
+    parsed: dict[str, Any],
+    rows: list[dict[str, Any]],
+    anomalies: dict[str, Any],
+) -> tuple[list[str], dict]:
     if not GROQ_API_TOKEN:
         return [], {}
 
     compact_rows = _compress_rows(rows, limit=12)
     anomaly_items = (anomalies or {}).get("items", [])[:5]
     prompt = (
-        "Return ONLY JSON: {\"insights\":[\"...\",\"...\"]}. "
+        'Return ONLY JSON: {"insights":["...","..."]}. '
         "Write 2-3 concise business insights; use anomaly signals when present; avoid invented causality.\n"
         f"User query: {user_query}\n"
         f"Parsed intent: {json.dumps(parsed, ensure_ascii=False)}\n"
@@ -664,7 +826,9 @@ def _call_ai_insights(user_query: str, parsed: dict[str, Any], rows: list[dict[s
             "model": INSIGHTS_MODEL,
             "messages": messages,
             "temperature": 0.0,
-            "max_tokens": calc_max_tokens(messages, task="insights", model=INSIGHTS_MODEL),
+            "max_tokens": calc_max_tokens(
+                messages, task="insights", model=INSIGHTS_MODEL
+            ),
         },
         timeout=30,
         retry_without_reasoning_effort=False,
@@ -685,29 +849,30 @@ def _call_ai_insights(user_query: str, parsed: dict[str, Any], rows: list[dict[s
 async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     import datetime as _dt
 
-    query_id      = input_data.get("queryId")
-    user_query    = input_data.get("query", "")
-    parsed        = input_data.get("parsed", {})
-    results       = input_data.get("results", [])
-    anomalies     = input_data.get("anomalies", {})
+    query_id = input_data.get("queryId")
+    user_query = input_data.get("query", "")
+    parsed = input_data.get("parsed", {})
+    results = input_data.get("results", [])
+    anomalies = input_data.get("anomalies", {})
+    revenue_decomposition = input_data.get("revenue_decomposition", {})
     auto_insights = input_data.get("auto_insights", [])
     period_labels = input_data.get("period_labels", [])
-    start_date    = input_data.get("startDate", "")
-    end_date      = input_data.get("endDate", "")
+    start_date = input_data.get("startDate", "")
+    end_date = input_data.get("endDate", "")
 
-    qt     = parsed.get("query_type", "top_n")
+    qt = parsed.get("query_type", "top_n")
     entity = parsed.get("entity", "")
     metric = parsed.get("metric", "value")
     metric_display = parsed.get("semantic_metric") or metric
-    top_n  = parsed.get("top_n", 5)
+    top_n = parsed.get("top_n", 5)
     disable_limit = bool(parsed.get("_disable_limit"))
-    thr    = parsed.get("threshold")
+    thr = parsed.get("threshold")
     bucket = parsed.get("time_bucket", "month")
 
     currency = _infer_currency(metric_display, user_query)
-    p        = currency
-    elabel   = _entity_label(entity) or entity or "items"
-    mlabel   = _metric_label(metric_display, "")
+    p = currency
+    elabel = _entity_label(entity) or entity or "items"
+    mlabel = _metric_label(metric_display, "")
 
     _trs = parsed.get("time_ranges", [])
     if _trs and _trs[0].get("label"):
@@ -717,72 +882,101 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     else:
         _period_phrase = ""
 
-    qs           = await ctx.state.get("queries", query_id)
+    qs = await ctx.state.get("queries", query_id)
     if not user_query and qs:
         user_query = qs.get("query", "")
     if not auto_insights and qs:
         auto_insights = qs.get("auto_insights", []) or []
-    token_usage  = (qs or {}).get("token_usage", [])
+    if not revenue_decomposition and qs:
+        revenue_decomposition = qs.get("revenue_decomposition", {}) or {}
+    token_usage = (qs or {}).get("token_usage", [])
     token_totals = (qs or {}).get("token_totals", {})
     chart_config = None
 
     if not auto_insights:
         if _should_skip_ai_insights(parsed, results, anomalies):
-            ctx.logger.info("AI insights skipped in formatter", {
-                "queryId": query_id,
-                "rows": len(results),
-                "query_type": parsed.get("query_type"),
-            })
+            ctx.logger.info(
+                "AI insights skipped in formatter",
+                {
+                    "queryId": query_id,
+                    "rows": len(results),
+                    "query_type": parsed.get("query_type"),
+                },
+            )
         else:
             try:
-                ai_insights, usage = _call_ai_insights(user_query, parsed, results, anomalies)
+                ai_insights, usage = _call_ai_insights(
+                    user_query, parsed, results, anomalies
+                )
                 auto_insights = ai_insights
                 if usage:
                     log_tokens(ctx, query_id, "GenerateInsights", INSIGHTS_MODEL, usage)
-                    await add_tokens_to_state(ctx, query_id, "GenerateInsights", INSIGHTS_MODEL, usage)
+                    await add_tokens_to_state(
+                        ctx, query_id, "GenerateInsights", INSIGHTS_MODEL, usage
+                    )
                     qs = await ctx.state.get("queries", query_id)
                     token_usage = (qs or {}).get("token_usage", token_usage)
                     token_totals = (qs or {}).get("token_totals", token_totals)
             except Exception as exc:
-                ctx.logger.warn("Formatter AI insights failed; continuing", {
-                    "queryId": query_id,
-                    "error": str(exc),
-                })
+                ctx.logger.warn(
+                    "Formatter AI insights failed; continuing",
+                    {
+                        "queryId": query_id,
+                        "error": str(exc),
+                    },
+                )
 
-    ctx.logger.info(" Formatting", {"queryId": query_id, "query_type": qt, "rows": len(results)})
+    ctx.logger.info(
+        " Formatting", {"queryId": query_id, "query_type": qt, "rows": len(results)}
+    )
 
-    has_delta  = results and "delta"  in results[0]
+    has_delta = results and "delta" in results[0]
     has_value2 = results and "value2" in results[0] and not has_delta
-    is_rank_within_time = bool(parsed.get("_rank_within_time")) and bool(results) and "period" in results[0]
-    is_scalar  = results and len(results) == 1 and "name" not in results[0]
-    is_empty   = not results or (is_scalar and results[0].get("value") is None)
+    is_rank_within_time = (
+        bool(parsed.get("_rank_within_time"))
+        and bool(results)
+        and "period" in results[0]
+    )
+    is_scalar = results and len(results) == 1 and "name" not in results[0]
+    is_empty = not results or (is_scalar and results[0].get("value") is None)
 
-    #  EMPTY 
+    #  EMPTY
     if is_empty:
         if qt == "time_series":
-            text = (f"No {mlabel} data found {_period_phrase}. "
-                    "The dataset may not cover this time range.")
+            text = (
+                f"No {mlabel} data found {_period_phrase}. "
+                "The dataset may not cover this time range."
+            )
         elif qt == "zero_filter":
-            text = (f"No {elabel} with zero {mlabel} found "
-                    f"between {start_date} and {end_date}.")
+            text = (
+                f"No {elabel} with zero {mlabel} found "
+                f"between {start_date} and {end_date}."
+            )
         elif qt == "threshold" and thr:
             unit = "%" if thr.get("type") == "percentage" else f" {mlabel}"
-            text = (f"No {elabel} matched the filter "
+            text = (
+                f"No {elabel} matched the filter "
                 f"({mlabel} > {thr['value']}{unit}) "
-                    f"between {start_date} and {end_date}.")
+                f"between {start_date} and {end_date}."
+            )
         elif period_labels and len(period_labels) >= 2:
-            text = (f"No data found for {period_labels[1]}.")
+            text = f"No data found for {period_labels[1]}."
         else:
             text = "No data available for the selected period."
         formatted_text = text + _token_summary(token_usage, token_totals)
         items = []
 
-    #  TIME SERIES (trend) 
+    #  TIME SERIES (trend)
     elif qt == "time_series":
-        period_str = _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
+        period_str = (
+            _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
+        )
         _bucket_map = {
-            "year": "Yearly", "month": "Monthly", "quarter": "Quarterly",
-            "week": "Weekly", "day": "Daily",
+            "year": "Yearly",
+            "month": "Monthly",
+            "quarter": "Quarterly",
+            "week": "Weekly",
+            "day": "Daily",
         }
         bucket_label = _bucket_map.get(bucket, bucket.capitalize())
         header = f"{bucket_label} {mlabel} trend {period_str}:"
@@ -793,7 +987,9 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
 
         items = []
         for lbl, val in zip(labels, values):
-            items.append({"period": lbl, "value": _fmt_indian(val, p), "raw_value": val})
+            items.append(
+                {"period": lbl, "value": _fmt_indian(val, p), "raw_value": val}
+            )
 
         lines = [header]
         if values:
@@ -820,7 +1016,9 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
                     lines.append(f"- {lbl}: {_fmt_indian(val, p)}")
             else:
                 lines.append("")
-                lines.append("Detailed monthly values are shown in the chart/export table.")
+                lines.append(
+                    "Detailed monthly values are shown in the chart/export table."
+                )
 
         insights = _insights_time_series(labels, values, p)
         if insights:
@@ -831,27 +1029,34 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
 
         if labels and values:
             chart_config = _make_line_chart(
-                labels, values, metric_display, currency,
+                labels,
+                values,
+                metric_display,
+                currency,
                 user_query or f"{bucket_label} {mlabel} trend",
                 period_str,
                 bucket,
             )
 
-    #  FORECAST 
+    #  FORECAST
     elif qt == "forecast":
         fr = parsed.get("_forecast_result", {})
-        goal_result = parsed.get("_goal_tracking_result") if isinstance(parsed.get("_goal_tracking_result"), dict) else None
+        goal_result = (
+            parsed.get("_goal_tracking_result")
+            if isinstance(parsed.get("_goal_tracking_result"), dict)
+            else None
+        )
         hist_labels = fr.get("hist_labels", [])
         hist_values = fr.get("hist_values", [])
-        fc_labels   = fr.get("fc_labels", [])
-        fc_values   = fr.get("fc_values", [])
-        fc_lower    = fr.get("fc_lower", [])
-        fc_upper    = fr.get("fc_upper", [])
-        method      = fr.get("method", "auto")
-        trend_pct   = fr.get("trend_pct", 0.0)
-        rmse        = fr.get("rmse", 0.0)
-        conf        = fr.get("confidence_pct", 80.0)
-        periods     = fr.get("periods", 3)
+        fc_labels = fr.get("fc_labels", [])
+        fc_values = fr.get("fc_values", [])
+        fc_lower = fr.get("fc_lower", [])
+        fc_upper = fr.get("fc_upper", [])
+        method = fr.get("method", "auto")
+        trend_pct = fr.get("trend_pct", 0.0)
+        rmse = fr.get("rmse", 0.0)
+        conf = fr.get("confidence_pct", 80.0)
+        periods = fr.get("periods", 3)
 
         if goal_result:
             target = float(goal_result.get("target_value") or 0.0)
@@ -861,7 +1066,9 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             gap = float(goal_result.get("gap") or 0.0)
             remaining_periods = int(goal_result.get("remaining_periods") or 0)
             required_per_period = float(goal_result.get("required_per_period") or 0.0)
-            forecast_avg_per_period = float(goal_result.get("forecast_avg_per_period") or 0.0)
+            forecast_avg_per_period = float(
+                goal_result.get("forecast_avg_per_period") or 0.0
+            )
             pace_ratio = float(goal_result.get("pace_ratio") or 0.0)
             on_track = bool(goal_result.get("on_track"))
             horizon_label = str(goal_result.get("horizon_label") or "target horizon")
@@ -884,27 +1091,51 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
 
             if remaining_periods > 0:
                 lines.append(f"Remaining {bucket}(s): {remaining_periods}")
-                lines.append(f"Required average per remaining {bucket}: {_fmt_indian(required_per_period, p)}")
-                lines.append(f"Forecast average per remaining {bucket}: {_fmt_indian(forecast_avg_per_period, p)}")
+                lines.append(
+                    f"Required average per remaining {bucket}: {_fmt_indian(required_per_period, p)}"
+                )
+                lines.append(
+                    f"Forecast average per remaining {bucket}: {_fmt_indian(forecast_avg_per_period, p)}"
+                )
                 lines.append(f"Pace vs required: {pace_ratio * 100:.1f}%")
 
             if status == "insufficient_history":
-                lines.append("Note: Forecast confidence is limited due to very few historical points.")
+                lines.append(
+                    "Note: Forecast confidence is limited due to very few historical points."
+                )
 
             if fc_labels:
                 lines.append("")
                 lines.append("Projected values:")
                 for lbl, val, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper):
-                    lines.append(f"  {lbl:<14}  {_fmt_indian(val, p):>16}  [{_fmt_indian(lo, p)} - {_fmt_indian(hi, p)}]")
+                    lines.append(
+                        f"  {lbl:<14}  {_fmt_indian(val, p):>16}  [{_fmt_indian(lo, p)} - {_fmt_indian(hi, p)}]"
+                    )
 
             items = [
-                {"label": "Target", "value": _fmt_indian(target, p), "raw_value": target},
-                {"label": "Actual to date", "value": _fmt_indian(actual_to_date, p), "raw_value": actual_to_date},
-                {"label": "Projected total", "value": _fmt_indian(projected_total, p), "raw_value": projected_total},
+                {
+                    "label": "Target",
+                    "value": _fmt_indian(target, p),
+                    "raw_value": target,
+                },
+                {
+                    "label": "Actual to date",
+                    "value": _fmt_indian(actual_to_date, p),
+                    "raw_value": actual_to_date,
+                },
+                {
+                    "label": "Projected total",
+                    "value": _fmt_indian(projected_total, p),
+                    "raw_value": projected_total,
+                },
                 {"label": "Gap", "value": _fmt_indian(gap, p), "raw_value": gap},
             ]
-            formatted_text = "\n".join(lines) + _token_summary(token_usage, token_totals)
-            chart_config = (qs or {}).get("chart_config") or input_data.get("_chart_config")
+            formatted_text = "\n".join(lines) + _token_summary(
+                token_usage, token_totals
+            )
+            chart_config = (qs or {}).get("chart_config") or input_data.get(
+                "_chart_config"
+            )
         else:
             if start_date and end_date:
                 training_str = f"training: {start_date} to {end_date}"
@@ -916,28 +1147,43 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
 
             lines = [header, ""]
             lines.append(f"Historical points: {len(hist_labels)}")
-            lines.append(f"Method: {str(method).capitalize()}, Trend: {'UP' if float(trend_pct or 0) >= 0 else 'DOWN'} {abs(float(trend_pct or 0)):.1f}%/period")
-            lines.append(f"Confidence band: {int(float(conf or 80))}%  |  RMSE: {_fmt_indian(rmse, p)}")
+            lines.append(
+                f"Method: {str(method).capitalize()}, Trend: {'UP' if float(trend_pct or 0) >= 0 else 'DOWN'} {abs(float(trend_pct or 0)):.1f}%/period"
+            )
+            lines.append(
+                f"Confidence band: {int(float(conf or 80))}%  |  RMSE: {_fmt_indian(rmse, p)}"
+            )
             lines.append("")
             lines.append("Projected values:")
             for lbl, val, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper):
-                lines.append(f"  {lbl:<14}  {_fmt_indian(val, p):>16}  [{_fmt_indian(lo, p)} - {_fmt_indian(hi, p)}]")
+                lines.append(
+                    f"  {lbl:<14}  {_fmt_indian(val, p):>16}  [{_fmt_indian(lo, p)} - {_fmt_indian(hi, p)}]"
+                )
 
-            items = [{
-                "period": lbl,
-                "value": _fmt_indian(v, p),
-                "raw_value": v,
-                "lower": _fmt_indian(lo, p),
-                "upper": _fmt_indian(hi, p),
-                "is_forecast": True,
-            } for lbl, v, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper)]
+            items = [
+                {
+                    "period": lbl,
+                    "value": _fmt_indian(v, p),
+                    "raw_value": v,
+                    "lower": _fmt_indian(lo, p),
+                    "upper": _fmt_indian(hi, p),
+                    "is_forecast": True,
+                }
+                for lbl, v, lo, hi in zip(fc_labels, fc_values, fc_lower, fc_upper)
+            ]
 
-            formatted_text = "\n".join(lines) + _token_summary(token_usage, token_totals)
-            chart_config = (qs or {}).get("chart_config") or input_data.get("_chart_config")
+            formatted_text = "\n".join(lines) + _token_summary(
+                token_usage, token_totals
+            )
+            chart_config = (qs or {}).get("chart_config") or input_data.get(
+                "_chart_config"
+            )
 
-    #  RANKED WITHIN TIME BUCKET 
+    #  RANKED WITHIN TIME BUCKET
     elif is_rank_within_time:
-        period_str = _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
+        period_str = (
+            _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
+        )
         direction = "Top" if qt != "bottom_n" else "Bottom"
         header = f"{direction} {top_n} {elabel.title()} by {mlabel} for each {bucket} {period_str}:"
 
@@ -960,13 +1206,15 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
                 name = _display_entity_name(row.get("name", "?"), entity)
                 value = row.get("value", 0) or 0
                 lines.append(f"{idx}. {name}  {_fmt_indian(value, p)}")
-                items.append({
-                    "period": period,
-                    "rank": idx,
-                    "name": name,
-                    "value": _fmt_indian(value, p),
-                    "raw_value": value,
-                })
+                items.append(
+                    {
+                        "period": period,
+                        "rank": idx,
+                        "name": name,
+                        "value": _fmt_indian(value, p),
+                        "raw_value": value,
+                    }
+                )
 
         insights = _insights_ranked_by_period(items, p)
         if insights:
@@ -989,10 +1237,12 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
                 period_str,
             )
 
-    #  AGGREGATE scalar 
+    #  AGGREGATE scalar
     elif is_scalar:
         v = results[0]["value"]
-        period_str = _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
+        period_str = (
+            _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
+        )
         if parsed.get("_top_percent_share"):
             try:
                 pct_in = float(parsed.get("_top_percent_share"))
@@ -1004,14 +1254,16 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             except Exception:
                 val_s = str(v)
             top_lbl = f"top {pct_in:g}%" if isinstance(pct_in, float) else "top segment"
-            formatted_text = f"Revenue share of {top_lbl} {elabel} {period_str} is {val_s}"
+            formatted_text = (
+                f"Revenue share of {top_lbl} {elabel} {period_str} is {val_s}"
+            )
             items = [{"label": f"Share of {top_lbl}", "value": val_s}]
         else:
             val_s = _fmt_indian(v, p)
             formatted_text = f"Total {mlabel} {period_str} is {val_s}"
             items = [{"label": f"Total {mlabel}", "value": val_s}]
 
-    #  GROWTH RANKING 
+    #  GROWTH RANKING
     elif has_delta:
         p1 = period_labels[0] if len(period_labels) > 0 else "Period 1"
         p2 = period_labels[1] if len(period_labels) > 1 else "Period 2"
@@ -1031,12 +1283,16 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
                 f"- {p2}: {_fmt_indian(v2, p)}",
                 f"- Change: {sign}{_fmt_indian(abs(d), p)} ({pct_s})",
             ]
-            formatted_text = "\n".join(lines) + _token_summary(token_usage, token_totals)
-            items = [{
-                f"{p1}_value": _fmt(v1, p),
-                f"{p2}_value": _fmt(v2, p),
-                "delta": _delta_str(v1, v2, p),
-            }]
+            formatted_text = "\n".join(lines) + _token_summary(
+                token_usage, token_totals
+            )
+            items = [
+                {
+                    f"{p1}_value": _fmt(v1, p),
+                    f"{p2}_value": _fmt(v2, p),
+                    "delta": _delta_str(v1, v2, p),
+                }
+            ]
             chart_config = _bar(
                 [p1, p2],
                 [v1 or 0, v2 or 0],
@@ -1052,110 +1308,163 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             items = []
             for i, row in enumerate(results, 1):
                 name = _display_entity_name(row.get("name", "?"), entity)
-                v1, v2, d = row.get("value1", 0), row.get("value2", 0), row.get("delta", 0)
-                sign  = "+" if d >= 0 else ""
-                pct   = (d / v1 * 100) if v1 != 0 else float("inf")
+                v1, v2, d = (
+                    row.get("value1", 0),
+                    row.get("value2", 0),
+                    row.get("delta", 0),
+                )
+                sign = "+" if d >= 0 else ""
+                pct = (d / v1 * 100) if v1 != 0 else float("inf")
                 pct_s = f"{sign}{pct:.1f}%" if pct != float("inf") else "new entry"
-                header += (f"\n{i}. {name}"
-                           f"\n   {p1}: {_fmt_indian(v1, p)}"
-                           f"\n   {p2}: {_fmt_indian(v2, p)}"
-                           f"\n   Growth: {sign}{_fmt_indian(abs(d), p)} ({pct_s})")
+                header += (
+                    f"\n{i}. {name}"
+                    f"\n   {p1}: {_fmt_indian(v1, p)}"
+                    f"\n   {p2}: {_fmt_indian(v2, p)}"
+                    f"\n   Growth: {sign}{_fmt_indian(abs(d), p)} ({pct_s})"
+                )
                 items.append({"rank": i, "name": name, "delta": d})
             insights = _insights_ranked(items, p)
             insight_txt = ""
             if insights:
                 insight_txt = "\n\nInsights:\n" + "\n".join(f"- {x}" for x in insights)
-            formatted_text = header + insight_txt + _token_summary(token_usage, token_totals)
-            names  = [_display_entity_name(r.get("name", "?"), entity) for r in results]
-            deltas = [r.get("delta", 0)   for r in results]
+            formatted_text = (
+                header + insight_txt + _token_summary(token_usage, token_totals)
+            )
+            names = [_display_entity_name(r.get("name", "?"), entity) for r in results]
+            deltas = [r.get("delta", 0) for r in results]
             chart_config = _bar(
-                names, deltas, metric_display, currency, entity,
+                names,
+                deltas,
+                metric_display,
+                currency,
+                entity,
                 user_query or f"{elabel.title()} by {mlabel} growth: {p1}{p2}",
                 f"Delta in {mlabel} ({p1}  {p2})",
             )
 
-    #  COMPARISON 
+    #  COMPARISON
     elif has_value2:
         p1 = period_labels[0] if len(period_labels) > 0 else "Period 1"
         p2 = period_labels[1] if len(period_labels) > 1 else "Period 2"
         header = f" Top {top_n} {elabel} by {mlabel}: {p1} vs {p2}"
-        col_w  = max((len(r.get("name", "")) for r in results), default=20)
-        col_w  = max(col_w, 20)
-        sep    = "" * (col_w + 44)
-        hdr    = f"  {'#':>3}  {'Name':<{col_w}}  {p1:>16}  {p2:>16}  {' Change':>14}"
-        lines  = [header, sep, hdr, sep]
-        items  = []
+        col_w = max((len(r.get("name", "")) for r in results), default=20)
+        col_w = max(col_w, 20)
+        sep = "" * (col_w + 44)
+        hdr = f"  {'#':>3}  {'Name':<{col_w}}  {p1:>16}  {p2:>16}  {' Change':>14}"
+        lines = [header, sep, hdr, sep]
+        items = []
         for i, row in enumerate(results, 1):
             name = _display_entity_name(row.get("name", "?"), entity)
             v1, v2 = row.get("value1"), row.get("value2")
             d = _delta_str(v1, v2, p)
-            lines.append(f"  {i:>3}. {name:<{col_w}}  {_fmt(v1,p):>16}  {_fmt(v2,p):>16}  {d:>14}")
-            items.append({"rank": i, "name": name,
-                          f"{p1}_value": _fmt(v1, p), f"{p2}_value": _fmt(v2, p), "delta": d})
+            lines.append(
+                f"  {i:>3}. {name:<{col_w}}  {_fmt(v1, p):>16}  {_fmt(v2, p):>16}  {d:>14}"
+            )
+            items.append(
+                {
+                    "rank": i,
+                    "name": name,
+                    f"{p1}_value": _fmt(v1, p),
+                    f"{p2}_value": _fmt(v2, p),
+                    "delta": d,
+                }
+            )
         formatted_text = "\n".join(lines) + _token_summary(token_usage, token_totals)
         names = [_display_entity_name(r.get("name", "?"), entity) for r in results]
         vals1 = [r.get("value1", 0) or 0 for r in results]
         vals2 = [r.get("value2", 0) or 0 for r in results]
-        base_cmp = _make_base(metric_display, currency, entity, legend=True, index_axis="y")
-        base_cmp["plugins"]["tooltip"]["callbacks"] = {"label": _cmp_tooltip_fn(metric_display, currency)}
+        base_cmp = _make_base(
+            metric_display, currency, entity, legend=True, index_axis="y"
+        )
+        base_cmp["plugins"]["tooltip"]["callbacks"] = {
+            "label": _cmp_tooltip_fn(metric_display, currency)
+        }
         cmp_cfg = {
             "type": "bar",
-            "data": {"labels": names, "datasets": [
-                {"label": p1, "data": vals1,
-                 "backgroundColor": _PALETTE[0], "borderColor": _BORDERS[0],
-                 "borderWidth": 1, "borderRadius": 3},
-                {"label": p2, "data": vals2,
-                 "backgroundColor": _PALETTE[1], "borderColor": _BORDERS[1],
-                 "borderWidth": 1, "borderRadius": 3},
-            ]},
+            "data": {
+                "labels": names,
+                "datasets": [
+                    {
+                        "label": p1,
+                        "data": vals1,
+                        "backgroundColor": _PALETTE[0],
+                        "borderColor": _BORDERS[0],
+                        "borderWidth": 1,
+                        "borderRadius": 3,
+                    },
+                    {
+                        "label": p2,
+                        "data": vals2,
+                        "backgroundColor": _PALETTE[1],
+                        "borderColor": _BORDERS[1],
+                        "borderWidth": 1,
+                        "borderRadius": 3,
+                    },
+                ],
+            },
             "options": base_cmp,
         }
         chart_config = {
-            "title":    user_query or f"{mlabel} comparison: {p1} vs {p2}",
+            "title": user_query or f"{mlabel} comparison: {p1} vs {p2}",
             "subtitle": f"{p1} vs {p2}",
-            "prefix":   p,
-            "config":   cmp_cfg,
+            "prefix": p,
+            "config": cmp_cfg,
         }
 
-    #  RANKED / THRESHOLD / INTERSECTION / ZERO_FILTER 
+    #  RANKED / THRESHOLD / INTERSECTION / ZERO_FILTER
     else:
         names, values = [], []
         if qt == "zero_filter":
-            header = (f"{len(results)} {elabel} had zero {mlabel} "
-                      f"between {start_date} and {end_date}:")
+            header = (
+                f"{len(results)} {elabel} had zero {mlabel} "
+                f"between {start_date} and {end_date}:"
+            )
             items = []
             for i, row in enumerate(results, 1):
                 name = _display_entity_name(row.get("name", "?"), entity)
                 header += f"\n{i}. {name}"
                 items.append({"rank": i, "name": name, "value": "0"})
         else:
-            period_str = _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
+            period_str = (
+                _period_phrase
+                if _period_phrase
+                else f"between {start_date} and {end_date}"
+            )
 
             if qt == "threshold" and thr:
-                thr_op   = thr.get("operator", "gt")
+                thr_op = thr.get("operator", "gt")
                 thr_type = thr.get("type", "absolute")
-                thr_val  = thr.get("value", 0)
+                thr_val = thr.get("value", 0)
                 direction = "less than" if thr_op == "lt" else "more than"
-                thr_val_str = f"{thr_val:.0f}% of total" if thr_type == "percentage" else _fmt_indian(thr_val, p, decimals=0)
-                header = (f"{len(results)} {elabel} where {mlabel} contributed "
-                          f"{direction} {thr_val_str} "
-                          f"between {start_date} and {end_date}:")
+                thr_val_str = (
+                    f"{thr_val:.0f}% of total"
+                    if thr_type == "percentage"
+                    else _fmt_indian(thr_val, p, decimals=0)
+                )
+                header = (
+                    f"{len(results)} {elabel} where {mlabel} contributed "
+                    f"{direction} {thr_val_str} "
+                    f"between {start_date} and {end_date}:"
+                )
             elif qt == "intersection":
                 p1 = period_labels[0] if len(period_labels) > 0 else "Period 1"
                 p2 = period_labels[1] if len(period_labels) > 1 else "Period 2"
                 header = f" {elabel.title()} present in BOTH {p1} AND {p2} (combined {mlabel}):"
             else:
                 # ── KEY FIX: smart header based on result count vs requested top_n ──
-                header = _ranked_header(qt, top_n, len(results), elabel, mlabel, period_str, disable_limit)
+                header = _ranked_header(
+                    qt, top_n, len(results), elabel, mlabel, period_str, disable_limit
+                )
 
             items = []
             for i, row in enumerate(results, 1):
-                name  = _display_entity_name(row.get("name", "?"), entity)
+                name = _display_entity_name(row.get("name", "?"), entity)
                 value = row.get("value", 0) or 0
                 val_s = _fmt_indian(value, p)
                 header += f"\n{i}. {name}  {val_s}"
-                items.append({"rank": i, "name": name,
-                              "value": val_s, "raw_value": value})
+                items.append(
+                    {"rank": i, "name": name, "value": val_s, "raw_value": value}
+                )
                 names.append(name)
                 values.append(value)
 
@@ -1166,7 +1475,9 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
         insight_txt = ""
         if insights:
             insight_txt = "\n\nInsights:\n" + "\n".join(f"- {x}" for x in insights)
-        formatted_text = header + insight_txt + _token_summary(token_usage, token_totals)
+        formatted_text = (
+            header + insight_txt + _token_summary(token_usage, token_totals)
+        )
         if names:
             # Chart title: use "breakdown" for small result sets, "Top N" otherwise
             if disable_limit or len(names) < top_n or len(names) <= 5:
@@ -1175,10 +1486,18 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
                 rl = "Top" if qt != "bottom_n" else "Bottom"
                 chart_title = user_query or f"{rl} {elabel} by {mlabel}"
             chart_config = _bar(
-                names, values, metric_display, currency, entity,
+                names,
+                values,
+                metric_display,
+                currency,
+                entity,
                 chart_title,
                 f"{start_date} to {end_date}",
             )
+
+    bridge_lines = _revenue_bridge_lines(revenue_decomposition, p)
+    if bridge_lines:
+        formatted_text = _inject_revenue_bridge(formatted_text, bridge_lines)
 
     anomaly_lines = _anomaly_insights(anomalies, p)
     if anomaly_lines:
@@ -1189,18 +1508,27 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     if qs:
         now_iso = _dt.datetime.now(_dt.timezone.utc).isoformat()
         prev_ts = qs.get("status_timestamps", {})
-        await ctx.state.set("queries", query_id, {
-            **qs,
-            "status":         "completed",
-            "formattedText":  formatted_text,
-            "formattedItems": items,
-            "chart_config":   chart_config,
-            "anomalies":      anomalies,
-            "auto_insights":  auto_insights,
-            "token_usage":    token_usage,
-            "token_totals":   token_totals,
-            "completedAt":    now_iso,
-            "updatedAt":      now_iso,
-            "status_timestamps": {**prev_ts, "insights_generated": now_iso, "completed": now_iso},
-        })
+        await ctx.state.set(
+            "queries",
+            query_id,
+            {
+                **qs,
+                "status": "completed",
+                "formattedText": formatted_text,
+                "formattedItems": items,
+                "chart_config": chart_config,
+                "anomalies": anomalies,
+                "revenue_decomposition": revenue_decomposition,
+                "auto_insights": auto_insights,
+                "token_usage": token_usage,
+                "token_totals": token_totals,
+                "completedAt": now_iso,
+                "updatedAt": now_iso,
+                "status_timestamps": {
+                    **prev_ts,
+                    "insights_generated": now_iso,
+                    "completed": now_iso,
+                },
+            },
+        )
     ctx.logger.info(" Pipeline complete!", {"queryId": query_id})

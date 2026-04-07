@@ -17,8 +17,8 @@ import sys
 import re
 import logging
 
-_STEPS_DIR    = os.path.dirname(os.path.abspath(__file__))
-_MOTIA_DIR    = os.path.dirname(_STEPS_DIR)
+_STEPS_DIR = os.path.dirname(os.path.abspath(__file__))
+_MOTIA_DIR = os.path.dirname(_STEPS_DIR)
 _PROJECT_ROOT = os.path.dirname(_MOTIA_DIR)
 for _p in [_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT]:
     if _p not in sys.path:
@@ -58,8 +58,8 @@ config = {
 }
 
 _SQL_LINE_RE = re.compile(r"(?im)^(WITH|SELECT)\b")
-_FENCE_RE    = re.compile(r"```(?:sql)?\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
-_FORBIDDEN   = re.compile(
+_FENCE_RE = re.compile(r"```(?:sql)?\s*\n?(.*?)```", re.DOTALL | re.IGNORECASE)
+_FORBIDDEN = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|TRUNCATE|GRANT|REVOKE"
     r"|EXECUTE|COPY|VACUUM|ANALYZE|CALL|DO)\b",
     re.IGNORECASE,
@@ -69,6 +69,7 @@ _FORBIDDEN   = re.compile(
 
 
 # ── Schema helpers ─────────────────────────────────────────────────────────────
+
 
 def _get_existing_tables() -> set[str]:
     try:
@@ -83,11 +84,10 @@ def _get_existing_tables() -> set[str]:
         return set()
 
 
-
-
 def _detect_id_name_pairs() -> dict[str, str]:
     """Return {name_col: discriminator_col} for deduplication in GROUP BY."""
     from collections import defaultdict
+
     try:
         conn = get_read_connection()
         rows = conn.execute(
@@ -103,8 +103,13 @@ def _detect_id_name_pairs() -> dict[str, str]:
         table_cols[table].append(col.lower())
 
     _CONTACT_DISCRIMINATORS = (
-        "phone", "phone_number", "mobile", "mobile_number",
-        "email", "email_address", "contact",
+        "phone",
+        "phone_number",
+        "mobile",
+        "mobile_number",
+        "email",
+        "email_address",
+        "contact",
     )
 
     def _best_disc(name_col: str, col_set: set) -> str | None:
@@ -136,6 +141,7 @@ def _detect_id_name_pairs() -> dict[str, str]:
 
 # ── SQL extraction / safety ────────────────────────────────────────────────────
 
+
 def _extract_sql(raw: str) -> str:
     text = clean_model_text(raw, strip_fences=False)
     fence = _FENCE_RE.search(text)
@@ -143,7 +149,7 @@ def _extract_sql(raw: str) -> str:
         text = fence.group(1).strip()
     m = _SQL_LINE_RE.search(text)
     if m:
-        text = text[m.start():]
+        text = text[m.start() :]
     text = re.sub(r"(--[^\n]*|/\*.*?\*/)", "", text, flags=re.DOTALL)
     return text.strip().rstrip(";")
 
@@ -160,10 +166,10 @@ def _is_safe(sql: str) -> tuple[bool, str]:
 
 
 def _explain(sql: str, parsed: dict | None = None) -> tuple[bool, str]:
-    n   = sql.count("%s") + sql.count("?")
-    d   = date.today().replace(day=1)
+    n = sql.count("%s") + sql.count("?")
+    d = date.today().replace(day=1)
     num = 5
-    qt  = (parsed or {}).get("query_type", "")
+    qt = (parsed or {}).get("query_type", "")
     thr = (parsed or {}).get("threshold") or {}
     typ = thr.get("type", "")
     if n == 0:
@@ -210,7 +216,19 @@ def _score_revenue_column(col_name: str) -> int:
     c = (col_name or "").lower()
     score = 0
 
-    if any(k in c for k in ("revenue", "sales", "earning", "amount", "total", "final", "net", "paid")):
+    if any(
+        k in c
+        for k in (
+            "revenue",
+            "sales",
+            "earning",
+            "amount",
+            "total",
+            "final",
+            "net",
+            "paid",
+        )
+    ):
         score += 10
     if "final" in c or "net" in c or "paid" in c:
         score += 8
@@ -218,9 +236,27 @@ def _score_revenue_column(col_name: str) -> int:
         score += 6
     if "price" in c or "fare" in c:
         score += 3
-    if any(k in c for k in ("unit", "base", "list", "mrp", "msrp", "catalog", "original",
-                             "cost", "tax", "discount", "coupon", "shipping", "commission",
-                             "refund", "refunded", "before_")):
+    if any(
+        k in c
+        for k in (
+            "unit",
+            "base",
+            "list",
+            "mrp",
+            "msrp",
+            "catalog",
+            "original",
+            "cost",
+            "tax",
+            "discount",
+            "coupon",
+            "shipping",
+            "commission",
+            "refund",
+            "refunded",
+            "before_",
+        )
+    ):
         score -= 7
 
     return score
@@ -251,10 +287,27 @@ def _pick_best_count_key(columns: list[str]) -> str | None:
 
     def _score(c: str) -> tuple[int, int, int, int]:
         s = 0
-        if any(k in c for k in ("order", "transaction", "invoice", "booking", "trip", "ride",
-                                "ticket", "request", "visit", "session", "sale", "payment")):
+        if any(
+            k in c
+            for k in (
+                "order",
+                "transaction",
+                "invoice",
+                "booking",
+                "trip",
+                "ride",
+                "ticket",
+                "request",
+                "visit",
+                "session",
+                "sale",
+                "payment",
+            )
+        ):
             s += 10
-        if any(k in c for k in ("row", "line", "item", "detail", "record", "event", "log")):
+        if any(
+            k in c for k in ("row", "line", "item", "detail", "record", "event", "log")
+        ):
             s -= 10
         if c == "id":
             s -= 2
@@ -273,12 +326,28 @@ def _is_repeat_entity_count_intent(parsed: dict, user_query: str) -> bool:
     if parsed.get("_repeat_entity_count"):
         return True
     q = f" {(user_query or '').lower()} "
-    has_repeat = any(x in q for x in (" repeat ", " repeated ", " returning ", " return "))
+    has_repeat = any(
+        x in q for x in (" repeat ", " repeated ", " returning ", " return ")
+    )
     has_actor = any(
-        x in q for x in (
-            "buyer", "customer", "user", "client", "account", "member",
-            "driver", "vendor", "merchant", "seller", "partner", "employee",
-            "agent", "store", "warehouse", "branch",
+        x in q
+        for x in (
+            "buyer",
+            "customer",
+            "user",
+            "client",
+            "account",
+            "member",
+            "driver",
+            "vendor",
+            "merchant",
+            "seller",
+            "partner",
+            "employee",
+            "agent",
+            "store",
+            "warehouse",
+            "branch",
         )
     )
     return has_repeat and has_actor
@@ -297,7 +366,10 @@ def _top_percent_share_value(parsed: dict, user_query: str) -> float | None:
     m = re.search(r"\btop\s+(\d+(?:\.\d+)?)\s*(?:%|percent\b)", q)
     if not m:
         return None
-    if not any(x in q for x in ("contribution", "contribute", "share", "percent of", "percentage of")):
+    if not any(
+        x in q
+        for x in ("contribution", "contribute", "share", "percent of", "percentage of")
+    ):
         return None
     try:
         pct = float(m.group(1))
@@ -317,6 +389,7 @@ def _check_filters_present(sql: str, filters: dict, ctx, query_id: str) -> None:
 
 # ── Time-series SQL hint ───────────────────────────────────────────────────────
 
+
 def _build_time_series_sql_hint(parsed: dict) -> str:
     bucket = parsed.get("time_bucket", "month")
     metric = parsed.get("metric", "value")
@@ -324,25 +397,24 @@ def _build_time_series_sql_hint(parsed: dict) -> str:
     aov_count_key = parsed.get("_count_distinct_key") or "<order_identifier_column>"
 
     if bucket == "year":
-        bucket_expr  = "CAST(YEAR(date_col) AS VARCHAR)"
+        bucket_expr = "CAST(YEAR(date_col) AS VARCHAR)"
         bucket_label = "YYYY"
     elif bucket == "month":
-        bucket_expr  = "STRFTIME(date_col, '%Y-%m')"
+        bucket_expr = "STRFTIME(date_col, '%Y-%m')"
         bucket_label = "YYYY-MM"
     elif bucket == "week":
-        bucket_expr  = "STRFTIME(date_col, '%Y-W%W')"
+        bucket_expr = "STRFTIME(date_col, '%Y-W%W')"
         bucket_label = "YYYY-W##"
     elif bucket == "quarter":
-        bucket_expr  = "CONCAT(CAST(YEAR(date_col) AS VARCHAR), '-Q', CAST(QUARTER(date_col) AS VARCHAR))"
+        bucket_expr = "CONCAT(CAST(YEAR(date_col) AS VARCHAR), '-Q', CAST(QUARTER(date_col) AS VARCHAR))"
         bucket_label = "YYYY-Q#"
     else:
-        bucket_expr  = "STRFTIME(date_col, '%Y-%m-%d')"
+        bucket_expr = "STRFTIME(date_col, '%Y-%m-%d')"
         bucket_label = "YYYY-MM-DD"
 
     if metric == "aov":
         agg_expr = (
-            f'SUM("{aov_revenue_col}") / '
-            f'NULLIF(COUNT(DISTINCT "{aov_count_key}"), 0)'
+            f'SUM("{aov_revenue_col}") / NULLIF(COUNT(DISTINCT "{aov_count_key}"), 0)'
         )
     elif metric == "count":
         agg_expr = "COUNT(DISTINCT <order_pk_column>)"
@@ -384,25 +456,26 @@ CRITICAL RULES for time_series (ALL MUST BE FOLLOWED):
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
 
+
 def _build_llm_prompt(user_query: str, parsed: dict, schema: str) -> str:
-    entity     = parsed.get("entity")
-    metric     = parsed.get("metric", "count")
+    entity = parsed.get("entity")
+    metric = parsed.get("metric", "count")
     entity_key = parsed.get("_entity_group_key")
-    count_key  = parsed.get("_count_distinct_key")
+    count_key = parsed.get("_count_distinct_key")
     aov_revenue_col = parsed.get("_aov_revenue_col")
-    qt         = parsed.get("query_type", "top_n")
-    top_n      = parsed.get("top_n", 5)
+    qt = parsed.get("query_type", "top_n")
+    top_n = parsed.get("top_n", 5)
     disable_limit = bool(parsed.get("_disable_limit"))
     rank_within_time = bool(parsed.get("_rank_within_time"))
     repeat_entity_count = bool(parsed.get("_repeat_entity_count"))
     top_percent_share = _top_percent_share_value(parsed, user_query)
-    thr        = parsed.get("threshold") or {}
-    filters    = parsed.get("filters", {}) or {}
-    trs        = parsed.get("time_ranges", [])
-    bucket     = parsed.get("time_bucket", "month")
+    thr = parsed.get("threshold") or {}
+    filters = parsed.get("filters", {}) or {}
+    trs = parsed.get("time_ranges", [])
+    bucket = parsed.get("time_bucket", "month")
 
     filter_clause = _render_filter_clause(filters)
-    filter_desc   = (
+    filter_desc = (
         f"\n  MANDATORY FILTERS (from Rule 11):\n{filter_clause}"
         if filter_clause
         else "  none"
@@ -432,7 +505,7 @@ def _build_llm_prompt(user_query: str, parsed: dict, schema: str) -> str:
             f"ORDER BY period ASC, value {'DESC' if qt != 'bottom_n' else 'ASC'}."
         )
     elif qt in ("time_series", "forecast"):
-        ts_hint    = _build_time_series_sql_hint(parsed)
+        ts_hint = _build_time_series_sql_hint(parsed)
         rank_instr = (
             f"This is a TIME SERIES / TREND query.\n"
             f"Group by time bucket ({bucket}), NOT by any business entity.\n"
@@ -440,15 +513,25 @@ def _build_llm_prompt(user_query: str, parsed: dict, schema: str) -> str:
             f"\n{ts_hint}"
         )
     elif qt == "top_n":
-        rank_instr = "ORDER BY value DESC\nNO LIMIT" if disable_limit else f"ORDER BY value DESC\nLIMIT {top_n}"
+        rank_instr = (
+            "ORDER BY value DESC\nNO LIMIT"
+            if disable_limit
+            else f"ORDER BY value DESC\nLIMIT {top_n}"
+        )
     elif qt == "bottom_n":
-        rank_instr = "ORDER BY value ASC\nNO LIMIT" if disable_limit else f"ORDER BY value ASC\nLIMIT {top_n}"
+        rank_instr = (
+            "ORDER BY value ASC\nNO LIMIT"
+            if disable_limit
+            else f"ORDER BY value ASC\nLIMIT {top_n}"
+        )
     elif qt == "aggregate":
-        rank_instr = "No GROUP BY, no ORDER BY, no LIMIT. Return single scalar aliased 'value'."
+        rank_instr = (
+            "No GROUP BY, no ORDER BY, no LIMIT. Return single scalar aliased 'value'."
+        )
     elif qt == "threshold":
-        op    = ">" if thr.get("operator", "gt") == "gt" else "<"
+        op = ">" if thr.get("operator", "gt") == "gt" else "<"
         ttype = thr.get("type", "absolute")
-        tval  = thr.get("value", 0)
+        tval = thr.get("value", 0)
         if ttype == "percentage":
             rank_instr = (
                 f"HAVING {metric}_expr {op} ({tval} / 100.0) * (SELECT SUM(...) total)\n"
@@ -457,11 +540,15 @@ def _build_llm_prompt(user_query: str, parsed: dict, schema: str) -> str:
         else:
             rank_instr = f"HAVING aggregation {op} {tval}\nORDER BY value DESC"
     elif qt == "comparison":
-        rank_instr = f"Two-period comparison. Use CTEs. ORDER BY value1 DESC LIMIT {top_n}"
+        rank_instr = (
+            f"Two-period comparison. Use CTEs. ORDER BY value1 DESC LIMIT {top_n}"
+        )
     elif qt == "growth_ranking":
         rank_instr = f"Rank by delta = period2_value - period1_value. ORDER BY delta DESC LIMIT {top_n}"
     elif qt == "intersection":
-        rank_instr = f"Only entities present in BOTH periods. ORDER BY value DESC LIMIT {top_n}"
+        rank_instr = (
+            f"Only entities present in BOTH periods. ORDER BY value DESC LIMIT {top_n}"
+        )
     elif qt == "zero_filter":
         rank_instr = "Entities where metric = 0 or no rows in period. ORDER BY name"
     else:
@@ -493,7 +580,7 @@ def _build_llm_prompt(user_query: str, parsed: dict, schema: str) -> str:
     date_hints = ""
     if trs:
         for i, tr in enumerate(trs[:2]):
-            date_hints += f"\n  Period {i+1}: {tr.get('start')} to {tr.get('end')}"
+            date_hints += f"\n  Period {i + 1}: {tr.get('start')} to {tr.get('end')}"
 
     if filter_clause:
         filter_rule = (
@@ -517,9 +604,9 @@ Parsed intent:
   query_type : {qt}
   entity     : {entity}
   metric     : {metric}
-    aov_numerator_col: {aov_revenue_col or 'N/A'}
-    count_distinct_key: {count_key or 'N/A'}
-    time_bucket: {bucket if (qt in ('time_series', 'forecast') or rank_within_time) else 'N/A'}
+    aov_numerator_col: {aov_revenue_col or "N/A"}
+    count_distinct_key: {count_key or "N/A"}
+    time_bucket: {bucket if (qt in ("time_series", "forecast") or rank_within_time) else "N/A"}
   top_n      : {top_n}
     disable_limit: {disable_limit}
   filters    : {filter_desc}{date_hints}
@@ -530,7 +617,7 @@ RULES:
 3. Alias display column as name and metric expression as value.
 4. Date filters must use exclusive range: col >= ? AND col < ? (never BETWEEN/EXTRACT equality).
 5. Use ? for all runtime values.
-6. Metric logic: count => COUNT(DISTINCT {count_key or '<primary_order_id_column>'}); avg_* => AVG(base_col); aov => SUM({aov_revenue_col or '<revenue_column>'}) / NULLIF(COUNT(DISTINCT {count_key or '<order_identifier_column>'}),0); otherwise SUM(metric).
+6. Metric logic: count => COUNT(DISTINCT {count_key or "<primary_order_id_column>"}); avg_* => AVG(base_col); aov => SUM({aov_revenue_col or "<revenue_column>"}) / NULLIF(COUNT(DISTINCT {count_key or "<order_identifier_column>"}),0); otherwise SUM(metric).
 7. Ranking/query behavior: {rank_instr}
 8. Respect uniqueness + business filters + special intents below:
 {groupby_rule}
@@ -543,6 +630,7 @@ SQL:"""
 
 # ── LLM call ──────────────────────────────────────────────────────────────────
 
+
 def _call_llm(model: str, prompt: str) -> tuple[str, dict]:
     messages = [{"role": "user", "content": prompt}]
     payload = {
@@ -552,11 +640,7 @@ def _call_llm(model: str, prompt: str) -> tuple[str, dict]:
         "temperature": 0.0,
     }
 
-    if (
-        QWEN_ENABLE_REASONING
-        and "qwen" in model.lower()
-        and QWEN_REASONING_EFFORT
-    ):
+    if QWEN_ENABLE_REASONING and "qwen" in model.lower() and QWEN_REASONING_EFFORT:
         payload["reasoning_effort"] = QWEN_REASONING_EFFORT
 
     data = post_chat_completion(
@@ -582,10 +666,10 @@ User question: \"{user_query}\"
 {schema}
 
 Parsed intent:
-  query_type : {parsed.get('query_type')}
-  entity     : {parsed.get('entity')}
-  metric     : {parsed.get('metric')}
-  time_bucket: {parsed.get('time_bucket')}
+  query_type : {parsed.get("query_type")}
+  entity     : {parsed.get("entity")}
+  metric     : {parsed.get("metric")}
+  time_bucket: {parsed.get("time_bucket")}
 
 Broken SQL:
 {bad_sql}
@@ -612,7 +696,9 @@ def _try_repair_sql(
     error_msg: str,
 ) -> tuple[str | None, dict]:
     try:
-        fix_prompt = _build_sql_fix_prompt(user_query, parsed, schema, bad_sql, error_msg)
+        fix_prompt = _build_sql_fix_prompt(
+            user_query, parsed, schema, bad_sql, error_msg
+        )
         messages = [{"role": "user", "content": fix_prompt}]
         payload = {
             "model": model,
@@ -648,9 +734,9 @@ def _deterministic_time_series_fallback(parsed: dict) -> str | None:
     Build a robust time-series SQL without LLM.
     Used when query_type=time_series and model generation fails.
     """
-    metric    = (parsed.get("metric") or "count").lower()
-    bucket    = (parsed.get("time_bucket") or "month").lower()
-    filters   = parsed.get("filters", {}) or {}
+    metric = (parsed.get("metric") or "count").lower()
+    bucket = (parsed.get("time_bucket") or "month").lower()
+    filters = parsed.get("filters", {}) or {}
     count_key = parsed.get("_count_distinct_key")
     aov_revenue_col = (parsed.get("_aov_revenue_col") or "").lower().strip()
 
@@ -679,14 +765,24 @@ def _deterministic_time_series_fallback(parsed: dict) -> str | None:
         best = None
         for t in tables:
             try:
-                cols = [(c[0], str(c[1]).upper()) for c in conn.execute(f'DESCRIBE "{t}"').fetchall()]
+                cols = [
+                    (c[0], str(c[1]).upper())
+                    for c in conn.execute(f'DESCRIBE "{t}"').fetchall()
+                ]
             except Exception:
                 continue
             col_names = [c[0].lower() for c in cols]
             date_cols = [
-                c for c, typ in cols
-                if ("DATE" in typ or "TIMESTAMP" in typ
-                    or any(k in c.lower() for k in ("date", "time", "created", "updated", "at")))
+                c
+                for c, typ in cols
+                if (
+                    "DATE" in typ
+                    or "TIMESTAMP" in typ
+                    or any(
+                        k in c.lower()
+                        for k in ("date", "time", "created", "updated", "at")
+                    )
+                )
             ]
             if not date_cols:
                 continue
@@ -695,20 +791,40 @@ def _deterministic_time_series_fallback(parsed: dict) -> str | None:
             agg_expr = None
             score = 0
             if metric == "aov":
-                ck = count_key if count_key and count_key in col_names else _pick_best_count_key(col_names)
+                ck = (
+                    count_key
+                    if count_key and count_key in col_names
+                    else _pick_best_count_key(col_names)
+                )
                 revenue_col = aov_revenue_col if aov_revenue_col in col_names else None
                 if not revenue_col:
                     candidates = [
-                        c for c in col_names
-                        if any(k in c for k in ("amount", "total", "revenue", "sales",
-                                                "earning", "price", "fare", "cost",
-                                                "fee", "payment", "profit", "final", "net", "paid"))
+                        c
+                        for c in col_names
+                        if any(
+                            k in c
+                            for k in (
+                                "amount",
+                                "total",
+                                "revenue",
+                                "sales",
+                                "earning",
+                                "price",
+                                "fare",
+                                "cost",
+                                "fee",
+                                "payment",
+                                "profit",
+                                "final",
+                                "net",
+                                "paid",
+                            )
+                        )
                     ]
                     revenue_col = _pick_best_revenue_column(candidates)
                 if ck and revenue_col:
                     agg_expr = (
-                        f'SUM("{revenue_col}") / '
-                        f'NULLIF(COUNT(DISTINCT "{ck}"), 0)'
+                        f'SUM("{revenue_col}") / NULLIF(COUNT(DISTINCT "{ck}"), 0)'
                     )
                     score += 8
             elif metric == "count":
@@ -728,10 +844,25 @@ def _deterministic_time_series_fallback(parsed: dict) -> str | None:
                     score += 7
                 else:
                     candidates = [
-                        c for c in col_names
-                        if any(k in c for k in ("amount", "total", "revenue", "sales",
-                                                "earning", "price", "fare", "cost",
-                                                "fee", "payment", "profit", "final"))
+                        c
+                        for c in col_names
+                        if any(
+                            k in c
+                            for k in (
+                                "amount",
+                                "total",
+                                "revenue",
+                                "sales",
+                                "earning",
+                                "price",
+                                "fare",
+                                "cost",
+                                "fee",
+                                "payment",
+                                "profit",
+                                "final",
+                            )
+                        )
                     ]
                     best_money_col = _pick_best_revenue_column(candidates)
                     if best_money_col:
@@ -766,16 +897,18 @@ def _deterministic_time_series_fallback(parsed: dict) -> str | None:
     where_extra = f"\n{filter_clause}" if filter_clause else ""
 
     return (
-        f'SELECT {b_expr} AS name, {agg_expr} AS value\n'
+        f"SELECT {b_expr} AS name, {agg_expr} AS value\n"
         f'FROM "{table}"\n'
         f'WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ?'
-        f'{where_extra}\n'
-        f'GROUP BY {b_expr}\n'
-        f'ORDER BY name ASC'
+        f"{where_extra}\n"
+        f"GROUP BY {b_expr}\n"
+        f"ORDER BY name ASC"
     )
 
 
-def _deterministic_repeat_entity_count_fallback(parsed: dict, user_query: str) -> str | None:
+def _deterministic_repeat_entity_count_fallback(
+    parsed: dict, user_query: str
+) -> str | None:
     """Count repeat entities (>=2 distinct events) in the selected period."""
     filters = parsed.get("filters", {}) or {}
     entity_hint = (parsed.get("entity") or "").lower().strip()
@@ -786,18 +919,96 @@ def _deterministic_repeat_entity_count_fallback(parsed: dict, user_query: str) -
         d = dtype.upper()
         if any(k in c for k in ("date", "time", "created", "updated", "timestamp")):
             return False
-        if any(k in c for k in ("order", "booking", "transaction", "invoice", "payment", "trip", "ride", "ticket", "request", "session", "visit", "row", "line", "item", "detail", "record", "event", "log")):
+        if any(
+            k in c
+            for k in (
+                "order",
+                "booking",
+                "transaction",
+                "invoice",
+                "payment",
+                "trip",
+                "ride",
+                "ticket",
+                "request",
+                "session",
+                "visit",
+                "row",
+                "line",
+                "item",
+                "detail",
+                "record",
+                "event",
+                "log",
+            )
+        ):
             return False
         if "CHAR" in d or "TEXT" in d or "STRING" in d or "VARCHAR" in d:
             return (
                 c.endswith("_name")
-                or any(k in c for k in ("email", "phone", "mobile", "user", "customer", "buyer", "client", "driver", "vendor", "merchant", "seller", "store", "warehouse", "branch"))
+                or any(
+                    k in c
+                    for k in (
+                        "email",
+                        "phone",
+                        "mobile",
+                        "user",
+                        "customer",
+                        "buyer",
+                        "client",
+                        "driver",
+                        "vendor",
+                        "merchant",
+                        "seller",
+                        "store",
+                        "warehouse",
+                        "branch",
+                    )
+                )
                 or (entity_hint and entity_hint in c)
             )
-        if c == "id" or c.endswith("_id") or c.endswith("_uuid") or c.endswith("_key") or c.endswith("_code"):
-            if any(k in c for k in ("user", "customer", "buyer", "client", "driver", "vendor", "merchant", "seller", "store", "warehouse", "branch", "account", "member", "employee", "agent", "partner")):
+        if (
+            c == "id"
+            or c.endswith("_id")
+            or c.endswith("_uuid")
+            or c.endswith("_key")
+            or c.endswith("_code")
+        ):
+            if any(
+                k in c
+                for k in (
+                    "user",
+                    "customer",
+                    "buyer",
+                    "client",
+                    "driver",
+                    "vendor",
+                    "merchant",
+                    "seller",
+                    "store",
+                    "warehouse",
+                    "branch",
+                    "account",
+                    "member",
+                    "employee",
+                    "agent",
+                    "partner",
+                )
+            ):
                 return True
-            if any(k in query_l for k in ("buyer", "customer", "user", "client", "driver", "vendor", "store", "warehouse")):
+            if any(
+                k in query_l
+                for k in (
+                    "buyer",
+                    "customer",
+                    "user",
+                    "client",
+                    "driver",
+                    "vendor",
+                    "store",
+                    "warehouse",
+                )
+            ):
                 return True
         return False
 
@@ -818,7 +1029,27 @@ def _deterministic_repeat_entity_count_fallback(parsed: dict, user_query: str) -
                 score += 4
             if c.endswith("_name"):
                 score += 6
-            if any(k in c for k in ("user", "customer", "buyer", "client", "driver", "vendor", "merchant", "seller", "store", "warehouse", "branch", "account", "member", "employee", "agent", "partner")):
+            if any(
+                k in c
+                for k in (
+                    "user",
+                    "customer",
+                    "buyer",
+                    "client",
+                    "driver",
+                    "vendor",
+                    "merchant",
+                    "seller",
+                    "store",
+                    "warehouse",
+                    "branch",
+                    "account",
+                    "member",
+                    "employee",
+                    "agent",
+                    "partner",
+                )
+            ):
                 score += 8
             if any(k in query_l for k in c.replace("_", " ").split()):
                 score += 3
@@ -841,16 +1072,23 @@ def _deterministic_repeat_entity_count_fallback(parsed: dict, user_query: str) -
         best = None
         for t in tables:
             try:
-                cols = [(c[0], str(c[1]).upper()) for c in conn.execute(f'DESCRIBE "{t}"').fetchall()]
+                cols = [
+                    (c[0], str(c[1]).upper())
+                    for c in conn.execute(f'DESCRIBE "{t}"').fetchall()
+                ]
             except Exception:
                 continue
             col_names = [c[0].lower() for c in cols]
             date_cols = [
-                c for c, typ in cols
+                c
+                for c, typ in cols
                 if (
                     "DATE" in typ
                     or "TIMESTAMP" in typ
-                    or any(k in c.lower() for k in ("date", "time", "created", "updated", "at"))
+                    or any(
+                        k in c.lower()
+                        for k in ("date", "time", "created", "updated", "at")
+                    )
                 )
             ]
             if not date_cols:
@@ -861,7 +1099,11 @@ def _deterministic_repeat_entity_count_fallback(parsed: dict, user_query: str) -
             if not entity_key:
                 continue
 
-            event_key = count_key_hint if count_key_hint in col_names else _pick_best_count_key(col_names)
+            event_key = (
+                count_key_hint
+                if count_key_hint in col_names
+                else _pick_best_count_key(col_names)
+            )
             if event_key and event_key.lower() == entity_key.lower():
                 event_key = None
 
@@ -882,12 +1124,12 @@ def _deterministic_repeat_entity_count_fallback(parsed: dict, user_query: str) -
             return None
 
         _, table, date_col, entity_key, event_key, table_cols = best
-        filter_clause = _render_filter_clause({k: v for k, v in filters.items() if k in table_cols})
+        filter_clause = _render_filter_clause(
+            {k: v for k, v in filters.items() if k in table_cols}
+        )
         where_extra = f"\n{filter_clause}" if filter_clause else ""
         having_expr = (
-            f'COUNT(DISTINCT "{event_key}") >= 2'
-            if event_key
-            else "COUNT(*) >= 2"
+            f'COUNT(DISTINCT "{event_key}") >= 2' if event_key else "COUNT(*) >= 2"
         )
 
         return (
@@ -908,7 +1150,9 @@ def _deterministic_repeat_entity_count_fallback(parsed: dict, user_query: str) -
             pass
 
 
-def _deterministic_top_percent_share_fallback(parsed: dict, user_query: str) -> str | None:
+def _deterministic_top_percent_share_fallback(
+    parsed: dict, user_query: str
+) -> str | None:
     pct = _top_percent_share_value(parsed, user_query)
     if pct is None:
         return None
@@ -937,17 +1181,24 @@ def _deterministic_top_percent_share_fallback(parsed: dict, user_query: str) -> 
         best = None
         for t in tables:
             try:
-                cols = [(c[0], str(c[1]).upper()) for c in conn.execute(f'DESCRIBE "{t}"').fetchall()]
+                cols = [
+                    (c[0], str(c[1]).upper())
+                    for c in conn.execute(f'DESCRIBE "{t}"').fetchall()
+                ]
             except Exception:
                 continue
 
             col_names = [c[0].lower() for c in cols]
             date_cols = [
-                c for c, typ in cols
+                c
+                for c, typ in cols
                 if (
                     "DATE" in typ
                     or "TIMESTAMP" in typ
-                    or any(k in c.lower() for k in ("date", "time", "created", "updated", "at"))
+                    or any(
+                        k in c.lower()
+                        for k in ("date", "time", "created", "updated", "at")
+                    )
                 )
             ]
             if not date_cols:
@@ -961,7 +1212,11 @@ def _deterministic_top_percent_share_fallback(parsed: dict, user_query: str) -> 
                 entity_col = entity[:-5]
             else:
                 tokens = [tok for tok in entity.replace("_", " ").split() if tok]
-                text_cols = [c for c, typ in cols if any(tk in typ for tk in ("VARCHAR", "CHAR", "TEXT", "STRING"))]
+                text_cols = [
+                    c
+                    for c, typ in cols
+                    if any(tk in typ for tk in ("VARCHAR", "CHAR", "TEXT", "STRING"))
+                ]
                 for c in text_cols:
                     low = c.lower()
                     if any(tok in low for tok in tokens):
@@ -981,18 +1236,43 @@ def _deterministic_top_percent_share_fallback(parsed: dict, user_query: str) -> 
 
             agg_expr = None
             if metric == "aov":
-                ck = count_key if count_key and count_key in col_names else _pick_best_count_key(col_names)
+                ck = (
+                    count_key
+                    if count_key and count_key in col_names
+                    else _pick_best_count_key(col_names)
+                )
                 revenue_col = aov_revenue_col if aov_revenue_col in col_names else None
                 if not revenue_col:
                     revenue_candidates = [
-                        c for c in col_names
-                        if any(k in c for k in ("final", "total", "amount", "price", "revenue", "sales", "earning", "fare", "net", "paid"))
+                        c
+                        for c in col_names
+                        if any(
+                            k in c
+                            for k in (
+                                "final",
+                                "total",
+                                "amount",
+                                "price",
+                                "revenue",
+                                "sales",
+                                "earning",
+                                "fare",
+                                "net",
+                                "paid",
+                            )
+                        )
                     ]
                     revenue_col = _pick_best_revenue_column(revenue_candidates)
                 if ck and revenue_col:
-                    agg_expr = f'SUM("{revenue_col}") / NULLIF(COUNT(DISTINCT "{ck}"), 0)'
+                    agg_expr = (
+                        f'SUM("{revenue_col}") / NULLIF(COUNT(DISTINCT "{ck}"), 0)'
+                    )
             elif metric == "count":
-                ck = count_key if count_key and count_key in col_names else _pick_best_count_key(col_names)
+                ck = (
+                    count_key
+                    if count_key and count_key in col_names
+                    else _pick_best_count_key(col_names)
+                )
                 agg_expr = f'COUNT(DISTINCT "{ck}")' if ck else "COUNT(*)"
             elif metric.startswith("avg_"):
                 mcol = metric[4:]
@@ -1002,8 +1282,23 @@ def _deterministic_top_percent_share_fallback(parsed: dict, user_query: str) -> 
                 agg_expr = f'SUM("{metric}")'
             else:
                 revenue_candidates = [
-                    c for c in col_names
-                    if any(k in c for k in ("final", "total", "amount", "price", "revenue", "sales", "earning", "fare", "net", "paid"))
+                    c
+                    for c in col_names
+                    if any(
+                        k in c
+                        for k in (
+                            "final",
+                            "total",
+                            "amount",
+                            "price",
+                            "revenue",
+                            "sales",
+                            "earning",
+                            "fare",
+                            "net",
+                            "paid",
+                        )
+                    )
                 ]
                 money_col = _pick_best_revenue_column(revenue_candidates)
                 if money_col:
@@ -1081,12 +1376,12 @@ def _deterministic_top_percent_share_fallback(parsed: dict, user_query: str) -> 
 
 def _deterministic_rank_within_time_fallback(parsed: dict) -> str | None:
     """Build SQL for top/bottom N entities within each time bucket."""
-    metric    = (parsed.get("metric") or "count").lower()
-    entity    = (parsed.get("entity") or "").lower().strip()
-    bucket    = (parsed.get("time_bucket") or "year").lower()
-    filters   = parsed.get("filters", {}) or {}
-    top_n     = int(parsed.get("top_n") or 5)
-    qt        = (parsed.get("query_type") or "top_n").lower()
+    metric = (parsed.get("metric") or "count").lower()
+    entity = (parsed.get("entity") or "").lower().strip()
+    bucket = (parsed.get("time_bucket") or "year").lower()
+    filters = parsed.get("filters", {}) or {}
+    top_n = int(parsed.get("top_n") or 5)
+    qt = (parsed.get("query_type") or "top_n").lower()
     count_key = parsed.get("_count_distinct_key")
     aov_revenue_col = (parsed.get("_aov_revenue_col") or "").lower().strip()
 
@@ -1119,17 +1414,24 @@ def _deterministic_rank_within_time_fallback(parsed: dict) -> str | None:
         best = None
         for t in tables:
             try:
-                cols = [(c[0], str(c[1]).upper()) for c in conn.execute(f'DESCRIBE "{t}"').fetchall()]
+                cols = [
+                    (c[0], str(c[1]).upper())
+                    for c in conn.execute(f'DESCRIBE "{t}"').fetchall()
+                ]
             except Exception:
                 continue
 
             col_names = [c[0].lower() for c in cols]
             date_cols = [
-                c for c, typ in cols
+                c
+                for c, typ in cols
                 if (
                     "DATE" in typ
                     or "TIMESTAMP" in typ
-                    or any(k in c.lower() for k in ("date", "time", "created", "updated", "at"))
+                    or any(
+                        k in c.lower()
+                        for k in ("date", "time", "created", "updated", "at")
+                    )
                 )
             ]
             if not date_cols:
@@ -1143,7 +1445,11 @@ def _deterministic_rank_within_time_fallback(parsed: dict) -> str | None:
                 entity_col = entity[:-5]
             else:
                 tokens = [tok for tok in entity.replace("_", " ").split() if tok]
-                text_cols = [c for c, typ in cols if any(tk in typ for tk in ("VARCHAR", "CHAR", "TEXT", "STRING"))]
+                text_cols = [
+                    c
+                    for c, typ in cols
+                    if any(tk in typ for tk in ("VARCHAR", "CHAR", "TEXT", "STRING"))
+                ]
                 for c in text_cols:
                     low = c.lower()
                     if any(tok in low for tok in tokens):
@@ -1155,18 +1461,43 @@ def _deterministic_rank_within_time_fallback(parsed: dict) -> str | None:
 
             agg_expr = None
             if metric == "aov":
-                ck = count_key if count_key and count_key in col_names else _pick_best_count_key(col_names)
+                ck = (
+                    count_key
+                    if count_key and count_key in col_names
+                    else _pick_best_count_key(col_names)
+                )
                 revenue_col = aov_revenue_col if aov_revenue_col in col_names else None
                 if not revenue_col:
                     revenue_candidates = [
-                        c for c in col_names
-                        if any(k in c for k in ("final", "total", "amount", "price", "revenue", "sales", "earning", "fare", "net", "paid"))
+                        c
+                        for c in col_names
+                        if any(
+                            k in c
+                            for k in (
+                                "final",
+                                "total",
+                                "amount",
+                                "price",
+                                "revenue",
+                                "sales",
+                                "earning",
+                                "fare",
+                                "net",
+                                "paid",
+                            )
+                        )
                     ]
                     revenue_col = _pick_best_revenue_column(revenue_candidates)
                 if ck and revenue_col:
-                    agg_expr = f'SUM("{revenue_col}") / NULLIF(COUNT(DISTINCT "{ck}"), 0)'
+                    agg_expr = (
+                        f'SUM("{revenue_col}") / NULLIF(COUNT(DISTINCT "{ck}"), 0)'
+                    )
             elif metric == "count":
-                ck = count_key if count_key and count_key in col_names else _pick_best_count_key(col_names)
+                ck = (
+                    count_key
+                    if count_key and count_key in col_names
+                    else _pick_best_count_key(col_names)
+                )
                 agg_expr = f'COUNT(DISTINCT "{ck}")' if ck else "COUNT(*)"
             elif metric.startswith("avg_"):
                 mcol = metric[4:]
@@ -1176,8 +1507,23 @@ def _deterministic_rank_within_time_fallback(parsed: dict) -> str | None:
                 agg_expr = f'SUM("{metric}")'
             else:
                 revenue_candidates = [
-                    c for c in col_names
-                    if any(k in c for k in ("final", "total", "amount", "price", "revenue", "sales", "earning", "fare", "net", "paid"))
+                    c
+                    for c in col_names
+                    if any(
+                        k in c
+                        for k in (
+                            "final",
+                            "total",
+                            "amount",
+                            "price",
+                            "revenue",
+                            "sales",
+                            "earning",
+                            "fare",
+                            "net",
+                            "paid",
+                        )
+                    )
                 ]
                 money_col = _pick_best_revenue_column(revenue_candidates)
                 if money_col:
@@ -1221,12 +1567,12 @@ def _deterministic_rank_within_time_fallback(parsed: dict) -> str | None:
     return (
         "WITH ranked AS (\n"
         f"  SELECT {b_expr} AS period,\n"
-        f"         \"{entity_col}\" AS name,\n"
+        f'         "{entity_col}" AS name,\n'
         f"         {agg_expr} AS value,\n"
         f"         ROW_NUMBER() OVER (PARTITION BY {b_expr} ORDER BY {agg_expr} {direction}) AS rn\n"
-        f"  FROM \"{table}\"\n"
-        f"  WHERE CAST(\"{date_col}\" AS DATE) >= ? AND CAST(\"{date_col}\" AS DATE) < ?{where_extra}\n"
-        f"  GROUP BY {b_expr}, \"{entity_col}\"\n"
+        f'  FROM "{table}"\n'
+        f'  WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ?{where_extra}\n'
+        f'  GROUP BY {b_expr}, "{entity_col}"\n'
         ")\n"
         "SELECT period, name, value\n"
         "FROM ranked\n"
@@ -1237,10 +1583,10 @@ def _deterministic_rank_within_time_fallback(parsed: dict) -> str | None:
 
 def _deterministic_comparison_fallback(parsed: dict) -> str | None:
     """Build robust two-period comparison SQL without relying on LLM output."""
-    metric    = (parsed.get("metric") or "count").lower()
-    entity    = (parsed.get("entity") or "").lower().strip() or None
-    filters   = parsed.get("filters", {}) or {}
-    top_n     = int(parsed.get("top_n") or 5)
+    metric = (parsed.get("metric") or "count").lower()
+    entity = (parsed.get("entity") or "").lower().strip() or None
+    filters = parsed.get("filters", {}) or {}
+    top_n = int(parsed.get("top_n") or 5)
     count_key = parsed.get("_count_distinct_key")
     aov_revenue_col = (parsed.get("_aov_revenue_col") or "").lower().strip()
 
@@ -1258,16 +1604,23 @@ def _deterministic_comparison_fallback(parsed: dict) -> str | None:
         best = None
         for t in tables:
             try:
-                cols = [(c[0], str(c[1]).upper()) for c in conn.execute(f'DESCRIBE "{t}"').fetchall()]
+                cols = [
+                    (c[0], str(c[1]).upper())
+                    for c in conn.execute(f'DESCRIBE "{t}"').fetchall()
+                ]
             except Exception:
                 continue
             col_names = [c[0].lower() for c in cols]
             date_cols = [
-                c for c, typ in cols
+                c
+                for c, typ in cols
                 if (
                     "DATE" in typ
                     or "TIMESTAMP" in typ
-                    or any(k in c.lower() for k in ("date", "time", "created", "updated", "at"))
+                    or any(
+                        k in c.lower()
+                        for k in ("date", "time", "created", "updated", "at")
+                    )
                 )
             ]
             if not date_cols:
@@ -1283,28 +1636,56 @@ def _deterministic_comparison_fallback(parsed: dict) -> str | None:
                 else:
                     entity_col = next((c for c in col_names if entity in c), None)
                 if not entity_col:
-                    text_cols = [c for c, typ in cols if any(tk in typ for tk in ("VARCHAR", "CHAR", "TEXT", "STRING"))]
+                    text_cols = [
+                        c
+                        for c, typ in cols
+                        if any(
+                            tk in typ for tk in ("VARCHAR", "CHAR", "TEXT", "STRING")
+                        )
+                    ]
                     entity_base = entity.replace("_name", "").replace("_id", "")
                     tokens = [tok for tok in entity_base.split("_") if tok]
                     entity_col = next(
-                        (c for c in text_cols if any(tok in c.lower() for tok in tokens)),
+                        (
+                            c
+                            for c in text_cols
+                            if any(tok in c.lower() for tok in tokens)
+                        ),
                         None,
                     )
 
             agg_expr = None
             if metric == "aov":
-                ck = count_key if count_key and count_key in col_names else _pick_best_count_key(col_names)
+                ck = (
+                    count_key
+                    if count_key and count_key in col_names
+                    else _pick_best_count_key(col_names)
+                )
                 revenue_col = aov_revenue_col if aov_revenue_col in col_names else None
                 if not revenue_col:
                     revenue_candidates = [
-                        c for c in col_names
-                        if any(k in c for k in ("final", "total", "amount", "price", "revenue", "sales", "earning", "fare", "net", "paid"))
+                        c
+                        for c in col_names
+                        if any(
+                            k in c
+                            for k in (
+                                "final",
+                                "total",
+                                "amount",
+                                "price",
+                                "revenue",
+                                "sales",
+                                "earning",
+                                "fare",
+                                "net",
+                                "paid",
+                            )
+                        )
                     ]
                     revenue_col = _pick_best_revenue_column(revenue_candidates)
                 if ck and revenue_col:
                     agg_expr = (
-                        f'SUM("{revenue_col}") / '
-                        f'NULLIF(COUNT(DISTINCT "{ck}"), 0)'
+                        f'SUM("{revenue_col}") / NULLIF(COUNT(DISTINCT "{ck}"), 0)'
                     )
             elif metric == "count":
                 ck = count_key if count_key and count_key in col_names else None
@@ -1319,8 +1700,23 @@ def _deterministic_comparison_fallback(parsed: dict) -> str | None:
                 agg_expr = f'SUM("{metric}")'
             else:
                 revenue_candidates = [
-                    c for c in col_names
-                    if any(k in c for k in ("final", "total", "amount", "price", "revenue", "sales", "earning", "fare", "net", "paid"))
+                    c
+                    for c in col_names
+                    if any(
+                        k in c
+                        for k in (
+                            "final",
+                            "total",
+                            "amount",
+                            "price",
+                            "revenue",
+                            "sales",
+                            "earning",
+                            "fare",
+                            "net",
+                            "paid",
+                        )
+                    )
                 ]
                 money_col = _pick_best_revenue_column(revenue_candidates)
                 if money_col:
@@ -1361,232 +1757,50 @@ def _deterministic_comparison_fallback(parsed: dict) -> str | None:
 
     if entity_col:
         return (
-            f'WITH p1 AS (\n'
+            f"WITH p1 AS (\n"
             f'  SELECT "{entity_col}" AS name, {agg_expr} AS value1\n'
             f'  FROM "{table}"\n'
             f'  WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ?{where_extra}\n'
             f'  GROUP BY "{entity_col}"\n'
-            f'),\n'
-            f'p2 AS (\n'
+            f"),\n"
+            f"p2 AS (\n"
             f'  SELECT "{entity_col}" AS name, {agg_expr} AS value2\n'
             f'  FROM "{table}"\n'
             f'  WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ?{where_extra}\n'
             f'  GROUP BY "{entity_col}"\n'
-            f')\n'
-            f'SELECT COALESCE(p1.name, p2.name) AS name,\n'
-            f'       COALESCE(p1.value1, 0) AS value1,\n'
-            f'       COALESCE(p2.value2, 0) AS value2,\n'
-            f'       COALESCE(p2.value2, 0) - COALESCE(p1.value1, 0) AS delta\n'
-            f'FROM p1\n'
-            f'FULL OUTER JOIN p2 ON p1.name = p2.name\n'
-            f'ORDER BY value1 DESC\n'
-            f'LIMIT {top_n}'
+            f")\n"
+            f"SELECT COALESCE(p1.name, p2.name) AS name,\n"
+            f"       COALESCE(p1.value1, 0) AS value1,\n"
+            f"       COALESCE(p2.value2, 0) AS value2,\n"
+            f"       COALESCE(p2.value2, 0) - COALESCE(p1.value1, 0) AS delta\n"
+            f"FROM p1\n"
+            f"FULL OUTER JOIN p2 ON p1.name = p2.name\n"
+            f"ORDER BY value1 DESC\n"
+            f"LIMIT {top_n}"
         )
 
     return (
-        f'WITH p1 AS (\n'
-        f'  SELECT {agg_expr} AS value1\n'
+        f"WITH p1 AS (\n"
+        f"  SELECT {agg_expr} AS value1\n"
         f'  FROM "{table}"\n'
         f'  WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ?{where_extra}\n'
-        f'),\n'
-        f'p2 AS (\n'
-        f'  SELECT {agg_expr} AS value2\n'
+        f"),\n"
+        f"p2 AS (\n"
+        f"  SELECT {agg_expr} AS value2\n"
         f'  FROM "{table}"\n'
         f'  WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ?{where_extra}\n'
-        f')\n'
+        f")\n"
         f"SELECT 'Total' AS name, p1.value1 AS value1, p2.value2 AS value2, (p2.value2 - p1.value1) AS delta\n"
-        f'FROM p1 CROSS JOIN p2'
+        f"FROM p1 CROSS JOIN p2"
     )
 
 
 # ── Handler ───────────────────────────────────────────────────────────────────
 
+
 async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
-    query_id   = input_data.get("queryId")
-    user_query = input_data.get("query", "")
-    parsed     = input_data.get("parsed", {})
+    from services.text_to_sql_service import run_text_to_sql
+    from types import SimpleNamespace
 
-    parsed["_user_query"] = user_query
-
-    qt      = parsed.get("query_type", "top_n")
-    rank_within_time = bool(parsed.get("_rank_within_time"))
-    filters = parsed.get("filters", {}) or {}
-
-    existing_tables = _get_existing_tables()
-
-    ctx.logger.info("📋 DB tables found", {
-        "queryId":      query_id,
-        "tables":       list(existing_tables),
-    })
-
-    ctx.logger.info("🧬 TextToSQL", {
-        "queryId":     query_id,
-        "query_type":  qt,
-        "time_bucket": parsed.get("time_bucket"),
-        "filters":     filters,
-    })
-
-    generated_sql = None
-    usage         = {}
-    fallback_used = False
-    sql_source    = "builder"
-    is_repeat_entity_count = _is_repeat_entity_count_intent(parsed, user_query)
-    is_top_percent_share = _top_percent_share_value(parsed, user_query) is not None
-
-    if generated_sql is None and is_repeat_entity_count:
-        fb = _deterministic_repeat_entity_count_fallback(parsed, user_query)
-        if fb:
-            generated_sql = fb
-            fallback_used = True
-            sql_source = "deterministic_repeat_entity_count_fallback"
-            ctx.logger.info("✅ Deterministic repeat-entity SQL built", {"queryId": query_id})
-
-    if generated_sql is None and is_top_percent_share:
-        fb = _deterministic_top_percent_share_fallback(parsed, user_query)
-        if fb:
-            generated_sql = fb
-            fallback_used = True
-            sql_source = "deterministic_top_percent_share_fallback"
-            ctx.logger.info("✅ Deterministic top-percent-share SQL built", {"queryId": query_id})
-
-    # ── Fast path: deterministic builder (schema-driven, works for any dataset) ─
-    use_builder = (
-        qt in ("top_n", "bottom_n", "aggregate", "zero_filter")
-        and not rank_within_time
-        and not is_repeat_entity_count
-        and not is_top_percent_share
-    )
-
-    if use_builder:
-        built = build_sql(parsed)
-        if built:
-            ok, reason = _is_safe(built)
-            if ok:
-                ok2, err = _explain(built, parsed)
-                if ok2:
-                    generated_sql = built
-                    ctx.logger.info("✅ Builder SQL validated", {"queryId": query_id})
-                else:
-                    ctx.logger.warn("⚠️ Builder EXPLAIN failed — falling to LLM",
-                                    {"queryId": query_id, "error": err})
-            else:
-                ctx.logger.warn("⚠️ Builder safety failed — falling to LLM",
-                                {"queryId": query_id, "reason": reason})
-
-    if generated_sql is None and rank_within_time:
-        fb = _deterministic_rank_within_time_fallback(parsed)
-        if fb:
-            generated_sql = fb
-            fallback_used = True
-            sql_source = "deterministic_rank_within_time_fallback"
-            ctx.logger.info("✅ Deterministic rank-within-time SQL built", {"queryId": query_id})
-
-    if generated_sql is None and qt in ("comparison", "growth_ranking", "intersection"):
-        fb = _deterministic_comparison_fallback(parsed)
-        if fb:
-            generated_sql = fb
-            fallback_used = True
-            sql_source = "deterministic_comparison_fallback"
-            ctx.logger.info("✅ Deterministic comparison SQL built", {"queryId": query_id})
-
-    # ── LLM path: used for all non-e-commerce datasets and complex query types ─
-    if generated_sql is None:
-        model      = SQL_GENERATOR_MODEL or LLAMA_MODEL
-        sql_source = f"llm_{model.split('/')[0]}"
-
-        ctx.logger.info("🤖 LLM SQL generation", {"queryId": query_id, "model": model})
-
-        try:
-            schema     = get_schema_prompt(mode="compact", user_query=user_query)
-            prompt     = _build_llm_prompt(user_query, parsed, schema)
-            raw, usage = _call_llm(model, prompt)
-            ctx.logger.info("🔬 LLM raw", {"queryId": query_id, "preview": raw[:400]})
-
-            sql = _extract_sql(raw)
-            ok, reason = _is_safe(sql)
-            if ok:
-                _check_filters_present(sql, filters, ctx, query_id)
-                ok2, err = _explain(sql, parsed)
-                if ok2:
-                    generated_sql = sql
-                    ctx.logger.info("✅ LLM SQL validated", {"queryId": query_id})
-                else:
-                    ctx.logger.warn("⚠️ LLM EXPLAIN failed — trying SQL self-repair",
-                                    {"queryId": query_id, "error": err})
-                    repaired_sql, repair_usage = _try_repair_sql(
-                        model=model,
-                        user_query=user_query,
-                        parsed=parsed,
-                        schema=schema,
-                        bad_sql=sql,
-                        error_msg=err,
-                    )
-                    if repair_usage:
-                        log_tokens(ctx, query_id, "TextToSQLRepair", model, repair_usage)
-                        await add_tokens_to_state(ctx, query_id, "TextToSQLRepair", model, repair_usage)
-
-                    if repaired_sql:
-                        generated_sql = repaired_sql
-                        ctx.logger.info("✅ SQL repaired and validated", {"queryId": query_id})
-                    else:
-                        ctx.logger.warn("⚠️ SQL self-repair failed; using deterministic fallback if available",
-                                        {"queryId": query_id})
-            else:
-                ctx.logger.warn("⚠️ LLM safety failed", {"queryId": query_id, "reason": reason})
-        except Exception as exc:
-            ctx.logger.error("❌ LLM error", {"queryId": query_id, "error": str(exc)})
-
-        if usage:
-            log_tokens(ctx, query_id, "TextToSQL", model, usage)
-            await add_tokens_to_state(ctx, query_id, "TextToSQL", model, usage)
-
-    # ── Registry fallback — no longer used (registry is empty) ──────────────────
-
-    # ── Deterministic time-series fallback (any schema) ────────────────────────
-    if generated_sql is None and qt in ("time_series", "forecast"):
-        fb = _deterministic_time_series_fallback(parsed)
-        if fb:
-            generated_sql = fb
-            fallback_used = True
-            sql_source    = "deterministic_time_series_fallback"
-            ctx.logger.warn("Deterministic time_series fallback used", {"queryId": query_id})
-
-    if generated_sql is None:
-        msg = (
-            f"Could not generate SQL for query_type={qt} "
-            f"entity={parsed.get('entity')} metric={parsed.get('metric')}. "
-            "Try rephrasing with explicit metric, dimension, and period."
-        )
-        qs = await ctx.state.get("queries", query_id)
-        if qs:
-            now_iso = datetime.now(timezone.utc).isoformat()
-            prev_ts = qs.get("status_timestamps", {})
-            await ctx.state.set("queries", query_id, {
-                **qs, "status": "error", "error": msg,
-                "updatedAt": now_iso,
-                "status_timestamps": {**prev_ts, "error": now_iso},
-            })
-        return
-
-    qs = await ctx.state.get("queries", query_id)
-    if qs:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        prev_ts = qs.get("status_timestamps", {})
-        await ctx.state.set("queries", query_id, {
-            **qs, "status": "sql_generated",
-            "generated_sql": generated_sql,
-            "sql_source":    sql_source,
-            "sql_fallback":  fallback_used,
-            "updatedAt": now_iso,
-            "status_timestamps": {**prev_ts, "sql_generated": now_iso},
-        })
-
-    await ctx.enqueue({
-        "topic": "query::execute",
-        "data":  {
-            "queryId":       query_id,
-            "query":         user_query,
-            "parsed":        parsed,
-            "generated_sql": generated_sql,
-        },
-    })
+    step_module = sys.modules.get(__name__) or SimpleNamespace(**globals())
+    await run_text_to_sql(step_module, input_data, ctx)

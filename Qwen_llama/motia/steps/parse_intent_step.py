@@ -79,124 +79,277 @@ Rules:
 9) Time ranges: parse absolute/relative periods; use full boundaries (year/quarter/month) and two ranges for comparison/YoY.
 """
 
-_TOPN_RE  = re.compile(r"\b(top|bottom)\s+(\d+)\b", re.IGNORECASE)
+_TOPN_RE = re.compile(r"\b(top|bottom)\s+(\d+)\b", re.IGNORECASE)
 
 _TREND_KEYWORDS = {
-    "month-wise", "monthly", "week-wise", "weekly", "day-wise", "daily",
-    "quarterly", "quarter-wise", "by month", "per month", "by week", "per week",
-    "by day", "per day", "by quarter", "per quarter", "over time", "trend",
-    "time series", "breakdown by month", "breakdown by week",
-    "revenue trend", "fare trend", "earnings trend", "how did", "how has",
-    "yearly", "year-wise", "per year", "annual", "annually", "by year",
-    "year over year", "yoy", "each year", "every year", "year-on-year",
+    "month-wise",
+    "monthly",
+    "week-wise",
+    "weekly",
+    "day-wise",
+    "daily",
+    "quarterly",
+    "quarter-wise",
+    "by month",
+    "per month",
+    "by week",
+    "per week",
+    "by day",
+    "per day",
+    "by quarter",
+    "per quarter",
+    "over time",
+    "trend",
+    "time series",
+    "breakdown by month",
+    "breakdown by week",
+    "revenue trend",
+    "fare trend",
+    "earnings trend",
+    "how did",
+    "how has",
+    "yearly",
+    "year-wise",
+    "per year",
+    "annual",
+    "annually",
+    "by year",
+    "year over year",
+    "yoy",
+    "each year",
+    "every year",
+    "year-on-year",
 }
 _FORECAST_KEYWORDS = {
-    "forecast", "predict", "projection", "project", "next month", "next quarter",
-    "next year", "next 3 months", "next 6 months", "future", "anticipated",
-    "expected revenue", "expected sales", "will be", "going to be",
+    "forecast",
+    "predict",
+    "projection",
+    "project",
+    "next month",
+    "next quarter",
+    "next year",
+    "next 3 months",
+    "next 6 months",
+    "future",
+    "anticipated",
+    "expected revenue",
+    "expected sales",
+    "will be",
+    "going to be",
 }
 
 _GOAL_TRACK_END_MONTH_CUES = {
-    "end of month", "month end", "eom", "by month end", "this month",
+    "end of month",
+    "month end",
+    "eom",
+    "by month end",
+    "this month",
 }
 
 _GOAL_TRACK_VERB_CUES = {
-    "on track", "track", "hit", "reach", "achieve", "meet",
+    "on track",
+    "track",
+    "hit",
+    "reach",
+    "achieve",
+    "meet",
 }
 
 _GOAL_TRACK_TARGET_CUES = {
-    "target", "goal", "quota",
+    "target",
+    "goal",
+    "quota",
 }
 
 _GOAL_SET_CUES = {
-    "our", "set", "target is", "goal is", "quota is", "this month target",
-    "this month's target", "month target",
+    "our",
+    "set",
+    "target is",
+    "goal is",
+    "quota is",
+    "this month target",
+    "this month's target",
+    "month target",
 }
 
 _GOAL_STATE_NS = "goal_targets"
 _GOAL_STATE_KEY = "current"
 
 _MONTH_NAME_TO_NUM = {
-    "jan": 1, "january": 1,
-    "feb": 2, "february": 2,
-    "mar": 3, "march": 3,
-    "apr": 4, "april": 4,
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
     "may": 5,
-    "jun": 6, "june": 6,
-    "jul": 7, "july": 7,
-    "aug": 8, "august": 8,
-    "sep": 9, "sept": 9, "september": 9,
-    "oct": 10, "october": 10,
-    "nov": 11, "november": 11,
-    "dec": 12, "december": 12,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
 }
 _ALL_TIME_YEARLY_HINTS = {
-    "each year", "every year", "yearly", "annual", "annually",
-    "by year", "per year",
+    "each year",
+    "every year",
+    "yearly",
+    "annual",
+    "annually",
+    "by year",
+    "per year",
 }
 
 _RANK_WITHIN_TIME_CUES: dict[str, tuple[str, ...]] = {
     "year": (
-        "per year", "by year", "each year", "every year", "year-wise", "yearly", "annual", "annually",
+        "per year",
+        "by year",
+        "each year",
+        "every year",
+        "year-wise",
+        "yearly",
+        "annual",
+        "annually",
     ),
     "quarter": (
-        "per quarter", "by quarter", "each quarter", "quarter-wise", "quarterly",
+        "per quarter",
+        "by quarter",
+        "each quarter",
+        "quarter-wise",
+        "quarterly",
     ),
     "month": (
-        "per month", "by month", "each month", "month-wise", "monthly",
+        "per month",
+        "by month",
+        "each month",
+        "month-wise",
+        "monthly",
     ),
     "week": (
-        "per week", "by week", "each week", "week-wise", "weekly",
+        "per week",
+        "by week",
+        "each week",
+        "week-wise",
+        "weekly",
     ),
     "day": (
-        "per day", "by day", "each day", "day-wise", "daily",
+        "per day",
+        "by day",
+        "each day",
+        "day-wise",
+        "daily",
     ),
 }
 
 _REVENUE_QUERY_HINTS = (
-    "revenue", "sales", "earning", "earnings", "income",
-    "turnover", "gmv", "gross merchandise", "net sales",
+    "revenue",
+    "sales",
+    "earning",
+    "earnings",
+    "income",
+    "turnover",
+    "gmv",
+    "gross merchandise",
+    "net sales",
 )
 
 _REVENUE_STRONG_COL_HINTS = (
-    "revenue", "sales", "earning", "amount", "total",
-    "final", "net", "paid", "gmv",
+    "revenue",
+    "sales",
+    "earning",
+    "amount",
+    "total",
+    "final",
+    "net",
+    "paid",
+    "gmv",
 )
 
 _REVENUE_WEAK_COL_HINTS = (
-    "unit", "base", "list", "mrp", "msrp", "catalog", "original",
-    "cost", "tax", "discount", "coupon", "shipping", "commission",
-    "refund", "refunded", "before_",
+    "unit",
+    "base",
+    "list",
+    "mrp",
+    "msrp",
+    "catalog",
+    "original",
+    "cost",
+    "tax",
+    "discount",
+    "coupon",
+    "shipping",
+    "commission",
+    "refund",
+    "refunded",
+    "before_",
 )
 
 _AOV_QUERY_HINTS = (
-    "aov", "average order value", "avg order value",
-    "average basket value", "average transaction value", "average ticket size",
+    "aov",
+    "average order value",
+    "avg order value",
+    "average basket value",
+    "average transaction value",
+    "average ticket size",
 )
 
 _REPEAT_ENTITY_CUES = (
-    "repeat", "repeated", "returning", "return", "repeat purchase", "repeat order",
+    "repeat",
+    "repeated",
+    "returning",
+    "return",
+    "repeat purchase",
+    "repeat order",
 )
 
 _REPEAT_ENTITY_NOUNS = (
-    "buyer", "customer", "user", "client", "account", "member",
-    "driver", "rider", "vendor", "merchant", "seller", "partner",
-    "employee", "agent", "store", "warehouse", "branch",
+    "buyer",
+    "customer",
+    "user",
+    "client",
+    "account",
+    "member",
+    "driver",
+    "rider",
+    "vendor",
+    "merchant",
+    "seller",
+    "partner",
+    "employee",
+    "agent",
+    "store",
+    "warehouse",
+    "branch",
 )
 
 _SHARE_CUES = (
-    "contribution", "contribute", "share", "percent of", "percentage of",
+    "contribution",
+    "contribute",
+    "share",
+    "percent of",
+    "percentage of",
 )
 
 _MANDATORY_FILTER_COLS: dict[str, dict] = {
-    "is_cancelled":  {"is_cancelled": 0},
-    "is_deleted":    {"is_deleted":   0},
-    "cancelled":     {"cancelled":    0},
-    "is_active":     {"is_active":    1},
-    "is_refunded":   {"is_refunded":  0},
-    "is_void":       {"is_void":      0},
-    "is_fraud":      {"is_fraud":     0},
-    "is_test":       {"is_test":      0},
+    "is_cancelled": {"is_cancelled": 0},
+    "is_deleted": {"is_deleted": 0},
+    "cancelled": {"cancelled": 0},
+    "is_active": {"is_active": 1},
+    "is_refunded": {"is_refunded": 0},
+    "is_void": {"is_void": 0},
+    "is_fraud": {"is_fraud": 0},
+    "is_test": {"is_test": 0},
 }
 
 _FOLLOWUP_CUES = (
@@ -231,6 +384,7 @@ _EXPLICIT_NEW_INTENT_CUES = (
 
 # ── Schema-driven fallback builder ────────────────────────────────────────────
 
+
 def _build_schema_keyword_maps() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
     """
     Read the live DuckDB schema and return two keyword→column maps:
@@ -242,20 +396,33 @@ def _build_schema_keyword_maps() -> tuple[list[tuple[str, str]], list[tuple[str,
     entity_map: list[tuple[str, str]] = []
     metric_map: list[tuple[str, str]] = []
 
-    _TEXT_TYPES   = ("VARCHAR", "CHAR", "TEXT", "STRING")
-    _NUM_TYPES    = ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL")
-    _DATE_HINTS   = ("date", "time", "created", "updated", "timestamp")
-    _ID_HINTS     = ("_id", "_key", "_uuid")
+    _TEXT_TYPES = ("VARCHAR", "CHAR", "TEXT", "STRING")
+    _NUM_TYPES = ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL")
+    _DATE_HINTS = ("date", "time", "created", "updated", "timestamp")
+    _ID_HINTS = ("_id", "_key", "_uuid")
 
-    _MONETARY = ("price", "fare", "amount", "earning", "revenue",
-                 "commission", "fee", "cost", "sale", "total", "final", "profit")
+    _MONETARY = (
+        "price",
+        "fare",
+        "amount",
+        "earning",
+        "revenue",
+        "commission",
+        "fee",
+        "cost",
+        "sale",
+        "total",
+        "final",
+        "profit",
+    )
     _COUNT_TRIGGERS = ("order", "ride", "trip", "booking", "transaction", "visit")
 
     try:
         conn = get_read_connection()
         try:
             tables = [
-                r[0] for r in conn.execute(
+                r[0]
+                for r in conn.execute(
                     "SELECT table_name FROM information_schema.tables "
                     "WHERE table_schema='main' ORDER BY table_name"
                 ).fetchall()
@@ -286,7 +453,7 @@ def _build_schema_keyword_maps() -> tuple[list[tuple[str, str]], list[tuple[str,
                         base = cname
                         for sfx in ("_name", "_type", "_mode", "_status"):
                             if base.endswith(sfx):
-                                base = base[:-len(sfx)]
+                                base = base[: -len(sfx)]
                                 break
                         base_words = base.replace("_", " ").strip()
                         if base_words:
@@ -309,20 +476,52 @@ def _build_schema_keyword_maps() -> tuple[list[tuple[str, str]], list[tuple[str,
                         if any(k in cname for k in _MONETARY):
                             metric_map.append((base_words, col))
                             # Add revenue aliases only for strong revenue columns.
-                            if any(k in cname for k in ("revenue", "sales", "amount", "earning", "total", "final", "net", "paid")):
-                                for alias in ("revenue", "sales", "income", "earnings", "money"):
+                            if any(
+                                k in cname
+                                for k in (
+                                    "revenue",
+                                    "sales",
+                                    "amount",
+                                    "earning",
+                                    "total",
+                                    "final",
+                                    "net",
+                                    "paid",
+                                )
+                            ):
+                                for alias in (
+                                    "revenue",
+                                    "sales",
+                                    "income",
+                                    "earnings",
+                                    "money",
+                                ):
                                     metric_map.append((alias, col))
 
                         # Count trigger columns (order_id, ride_id etc.)
                         if id_col and any(k in cname for k in _COUNT_TRIGGERS):
-                            for alias in ("count", "how many", "number of", "rides", "trips",
-                                          "orders", "bookings", "visits"):
+                            for alias in (
+                                "count",
+                                "how many",
+                                "number of",
+                                "rides",
+                                "trips",
+                                "orders",
+                                "bookings",
+                                "visits",
+                            ):
                                 metric_map.append((alias, "count"))
 
                         # Quantity
                         if "quantity" in cname or "qty" in cname:
-                            for alias in ("quantity", "units", "items", "pieces",
-                                          "how many items", "units sold"):
+                            for alias in (
+                                "quantity",
+                                "units",
+                                "items",
+                                "pieces",
+                                "how many items",
+                                "units sold",
+                            ):
                                 metric_map.append((alias, col))
 
                         # Distance / duration
@@ -342,13 +541,18 @@ def _build_schema_keyword_maps() -> tuple[list[tuple[str, str]], list[tuple[str,
     # Deduplicate while preserving order
     seen_e: set = set()
     seen_m: set = set()
-    entity_map = [(k, v) for k, v in entity_map if (k, v) not in seen_e and not seen_e.add((k, v))]  # type: ignore[func-returns-value]
-    metric_map = [(k, v) for k, v in metric_map if (k, v) not in seen_m and not seen_m.add((k, v))]  # type: ignore[func-returns-value]
+    entity_map = [
+        (k, v) for k, v in entity_map if (k, v) not in seen_e and not seen_e.add((k, v))
+    ]  # type: ignore[func-returns-value]
+    metric_map = [
+        (k, v) for k, v in metric_map if (k, v) not in seen_m and not seen_m.add((k, v))
+    ]  # type: ignore[func-returns-value]
 
     return entity_map, metric_map
 
 
 # ── Mandatory filters ─────────────────────────────────────────────────────────
+
 
 def _get_mandatory_filters() -> dict:
     mandatory: dict = {}
@@ -359,7 +563,9 @@ def _get_mandatory_filters() -> dict:
             "WHERE table_schema='main' ORDER BY table_name"
         ).fetchall()
         for (table,) in rows:
-            cols = {c[0].lower() for c in conn.execute(f'DESCRIBE "{table}"').fetchall()}
+            cols = {
+                c[0].lower() for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            }
             for col_name, filter_dict in _MANDATORY_FILTER_COLS.items():
                 if col_name in cols:
                     mandatory.update(filter_dict)
@@ -369,7 +575,9 @@ def _get_mandatory_filters() -> dict:
     return mandatory
 
 
-def _should_skip_mandatory_filter(col_name: str, user_query: str, chosen_entity: str | None = None) -> bool:
+def _should_skip_mandatory_filter(
+    col_name: str, user_query: str, chosen_entity: str | None = None
+) -> bool:
     ql = (user_query or "").lower()
     c = (col_name or "").lower().strip()
     if not c:
@@ -384,7 +592,9 @@ def _should_skip_mandatory_filter(col_name: str, user_query: str, chosen_entity:
     return False
 
 
-def _find_split_dimension_for_query(user_query: str, require_split_cue: bool = True) -> str | None:
+def _find_split_dimension_for_query(
+    user_query: str, require_split_cue: bool = True
+) -> str | None:
     ql = (user_query or "").lower()
     split_cue = any(x in ql for x in (" vs ", " versus ", " compared to ", " against "))
     grouping_cue = bool(re.search(r"\b(per|by|for each|each)\b", ql))
@@ -408,18 +618,47 @@ def _find_split_dimension_for_query(user_query: str, require_split_cue: bool = T
                 c = col.lower()
                 d = str(dtype).upper()
 
-                if any(k in c for k in ("date", "time", "created", "updated", "timestamp")):
+                if any(
+                    k in c for k in ("date", "time", "created", "updated", "timestamp")
+                ):
                     continue
                 if c.endswith("_id"):
                     continue
-                if any(k in c for k in (
-                    "price", "amount", "revenue", "sales", "earning", "total",
-                    "cost", "discount", "qty", "quantity", "distance", "duration",
-                    "score", "rate", "percent", "ratio",
-                )):
+                if any(
+                    k in c
+                    for k in (
+                        "price",
+                        "amount",
+                        "revenue",
+                        "sales",
+                        "earning",
+                        "total",
+                        "cost",
+                        "discount",
+                        "qty",
+                        "quantity",
+                        "distance",
+                        "duration",
+                        "score",
+                        "rate",
+                        "percent",
+                        "ratio",
+                    )
+                ):
                     continue
                 is_text = any(t in d for t in ("VARCHAR", "CHAR", "TEXT", "STRING"))
-                is_numeric = any(t in d for t in ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL"))
+                is_numeric = any(
+                    t in d
+                    for t in (
+                        "INT",
+                        "BIGINT",
+                        "FLOAT",
+                        "DOUBLE",
+                        "DECIMAL",
+                        "NUMERIC",
+                        "REAL",
+                    )
+                )
                 if not (is_text or is_numeric):
                     continue
 
@@ -436,7 +675,9 @@ def _find_split_dimension_for_query(user_query: str, require_split_cue: bool = T
                     continue
 
                 score = 0
-                name_tokens = [t for t in c.replace("is_", "").split("_") if len(t) >= 3]
+                name_tokens = [
+                    t for t in c.replace("is_", "").split("_") if len(t) >= 3
+                ]
                 token_hit = any(tok in ql for tok in name_tokens)
                 if token_hit:
                     score += 10
@@ -444,7 +685,9 @@ def _find_split_dimension_for_query(user_query: str, require_split_cue: bool = T
                     score += 4
                 if distinct_cnt <= 6:
                     score += 3
-                if token_hit and any(w in ql for w in ("count", "number of", "how many", "total")):
+                if token_hit and any(
+                    w in ql for w in ("count", "number of", "how many", "total")
+                ):
                     score += 2
 
                 if not split_cue and not token_hit:
@@ -486,7 +729,9 @@ def _infer_boolean_flag_filters(
                 d = str(dtype).upper()
                 if chosen_entity and c == str(chosen_entity).lower().strip():
                     continue
-                if not any(t in d for t in ("INT", "BIGINT", "SMALLINT", "TINYINT", "BOOLEAN")):
+                if not any(
+                    t in d for t in ("INT", "BIGINT", "SMALLINT", "TINYINT", "BOOLEAN")
+                ):
                     continue
 
                 try:
@@ -497,7 +742,9 @@ def _infer_boolean_flag_filters(
                 except Exception:
                     continue
                 norm_vals = {str(v[0]).strip() for v in vals}
-                if not norm_vals.issubset({"0", "1", "0.0", "1.0", "False", "True", "false", "true"}):
+                if not norm_vals.issubset(
+                    {"0", "1", "0.0", "1.0", "False", "True", "false", "true"}
+                ):
                     continue
 
                 base = c[3:] if c.startswith("is_") else c
@@ -505,7 +752,8 @@ def _infer_boolean_flag_filters(
 
                 positive_hit = _word(base) or _word(base_words) or _word(c)
                 negative_hit = any(
-                    phrase in ql for phrase in (
+                    phrase in ql
+                    for phrase in (
                         f"not {base_words}",
                         f"non {base_words}",
                         f"non-{base_words}",
@@ -546,6 +794,7 @@ def _sanitize_scalar_filters(filters: Any) -> dict[str, Any]:
 
 # ── Time-range helpers ────────────────────────────────────────────────────────
 
+
 def _looks_like_all_time_trend(query: str) -> bool:
     q = (query or "").lower()
     return any(k in q for k in _ALL_TIME_YEARLY_HINTS)
@@ -566,8 +815,11 @@ def _infer_dataset_time_range() -> list[dict]:
                 typ = str(c[1]).upper()
                 low = col.lower()
                 if not (
-                    "DATE" in typ or "TIMESTAMP" in typ
-                    or any(k in low for k in ("date", "time", "created", "updated", "at"))
+                    "DATE" in typ
+                    or "TIMESTAMP" in typ
+                    or any(
+                        k in low for k in ("date", "time", "created", "updated", "at")
+                    )
                 ):
                     continue
                 try:
@@ -598,6 +850,7 @@ def _infer_dataset_time_range() -> list[dict]:
 
 # ── JSON helpers ──────────────────────────────────────────────────────────────
 
+
 def _extract_json_object(text: str) -> str:
     start = text.find("{")
     if start < 0:
@@ -606,16 +859,22 @@ def _extract_json_object(text: str) -> str:
     for i in range(start, len(text)):
         ch = text[i]
         if in_str:
-            if esc:           esc = False
-            elif ch == "\\":  esc = True
-            elif ch == '"':   in_str = False
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
             continue
-        if ch == '"':   in_str = True; continue
-        if ch == "{":   depth += 1
+        if ch == '"':
+            in_str = True
+            continue
+        if ch == "{":
+            depth += 1
         elif ch == "}":
             depth -= 1
             if depth == 0:
-                return text[start:i + 1]
+                return text[start : i + 1]
     return ""
 
 
@@ -680,13 +939,35 @@ def _select_primary_count_key() -> str | None:
         best: tuple[int, str] | None = None
         for (table,) in table_rows:
             cols = conn.execute(f'DESCRIBE "{table}"').fetchall()
-            id_cols = [c[0].lower() for c in cols if c[0].lower().endswith("_id") or c[0].lower() == "id"]
+            id_cols = [
+                c[0].lower()
+                for c in cols
+                if c[0].lower().endswith("_id") or c[0].lower() == "id"
+            ]
             for col in id_cols:
                 score = 0
-                if any(k in col for k in ("order", "transaction", "invoice", "booking", "trip", "ride",
-                                          "ticket", "request", "visit", "session", "sale", "payment")):
+                if any(
+                    k in col
+                    for k in (
+                        "order",
+                        "transaction",
+                        "invoice",
+                        "booking",
+                        "trip",
+                        "ride",
+                        "ticket",
+                        "request",
+                        "visit",
+                        "session",
+                        "sale",
+                        "payment",
+                    )
+                ):
                     score += 10
-                if any(k in col for k in ("row", "line", "item", "detail", "record", "event", "log")):
+                if any(
+                    k in col
+                    for k in ("row", "line", "item", "detail", "record", "event", "log")
+                ):
                     score -= 10
                 if col == "id":
                     score -= 2
@@ -744,8 +1025,19 @@ def _detect_time_bucket(query: str) -> str:
         return "week"
     if any(x in q for x in ["day", "daily", "day-wise", "per day"]):
         return "day"
-    if any(x in q for x in ["per year", "by year", "each year", "yearly",
-                              "year-wise", "annual", "annually", "yoy"]):
+    if any(
+        x in q
+        for x in [
+            "per year",
+            "by year",
+            "each year",
+            "yearly",
+            "year-wise",
+            "annual",
+            "annually",
+            "yoy",
+        ]
+    ):
         return "year"
     return "month"
 
@@ -773,7 +1065,18 @@ def _detect_forecast_bucket(query: str) -> str:
     # For forecast phrasing, "next year" usually implies monthly projections.
     if "next year" in q:
         return "month"
-    if any(x in q for x in ["per year", "by year", "each year", "yearly", "year-wise", "annual", "annually"]):
+    if any(
+        x in q
+        for x in [
+            "per year",
+            "by year",
+            "each year",
+            "yearly",
+            "year-wise",
+            "annual",
+            "annually",
+        ]
+    ):
         return "year"
     return _detect_time_bucket(query)
 
@@ -871,10 +1174,12 @@ def _is_goal_tracking_query(query: str) -> bool:
     has_target = any(c in q for c in _GOAL_TRACK_TARGET_CUES)
     has_verb = any(c in q for c in _GOAL_TRACK_VERB_CUES)
     has_on_track_phrase = ("on track" in q) or ("track to" in q)
-    has_numeric_hit = bool(re.search(
-        r"\b(?:hit|reach|achieve|meet)\s+(?:rs\.?|inr|usd|\$)?\s*[0-9]",
-        q,
-    ))
+    has_numeric_hit = bool(
+        re.search(
+            r"\b(?:hit|reach|achieve|meet)\s+(?:rs\.?|inr|usd|\$)?\s*[0-9]",
+            q,
+        )
+    )
     return (has_target and has_verb) or has_numeric_hit or has_on_track_phrase
 
 
@@ -962,7 +1267,9 @@ async def _save_goal_target(
         "updated_at": now_iso,
         "source_query_id": query_id,
     }
-    await ctx.state.set(_GOAL_STATE_NS, _GOAL_STATE_KEY, {"items": items, "updated_at": now_iso})
+    await ctx.state.set(
+        _GOAL_STATE_NS, _GOAL_STATE_KEY, {"items": items, "updated_at": now_iso}
+    )
 
 
 def _lookup_goal_target(
@@ -1088,19 +1395,48 @@ def _has_ranking_cue(query: str) -> bool:
     q = f" {query.lower()} "
     if _TOPN_RE.search(q):
         return True
-    return any(x in q for x in [
-        " top ", " bottom ", "highest", "lowest", "least", "most",
-        "best", "worst", "top-", "bottom-",
-    ])
+    return any(
+        x in q
+        for x in [
+            " top ",
+            " bottom ",
+            "highest",
+            "lowest",
+            "least",
+            "most",
+            "best",
+            "worst",
+            "top-",
+            "bottom-",
+        ]
+    )
 
 
 def _has_metric_cue(query: str) -> bool:
     q = (query or "").lower()
     metric_cues = (
-        "revenue", "sales", "earning", "income", "turnover", "gmv",
-        "count", "how many", "number of", "quantity", "units",
-        "average", "avg", "price", "amount", "fare", "cost",
-        "discount", "profit", "margin", "rate", "score",
+        "revenue",
+        "sales",
+        "earning",
+        "income",
+        "turnover",
+        "gmv",
+        "count",
+        "how many",
+        "number of",
+        "quantity",
+        "units",
+        "average",
+        "avg",
+        "price",
+        "amount",
+        "fare",
+        "cost",
+        "discount",
+        "profit",
+        "margin",
+        "rate",
+        "score",
     )
     return any(c in q for c in metric_cues)
 
@@ -1134,7 +1470,11 @@ def _merge_followup_intent(
 
     q = (user_query or "").strip()
     token_count = len(re.findall(r"[a-z0-9]+", q.lower()))
-    missing_core = not parsed.get("entity") or not parsed.get("metric") or not parsed.get("time_ranges")
+    missing_core = (
+        not parsed.get("entity")
+        or not parsed.get("metric")
+        or not parsed.get("time_ranges")
+    )
     referential = _is_followup_referential_query(q)
     short_followup = token_count <= 7 and missing_core
     explicit_new_intent = _is_explicit_new_intent_query(q)
@@ -1222,7 +1562,9 @@ def _infer_entity_from_grouping_cue(
 ) -> str | None:
     q = f" {(user_query or '').lower()} "
     targets = []
-    for m in re.finditer(r"\b(?:per|by|for each|each)\s+([a-z][a-z0-9]*(?:\s+[a-z][a-z0-9]*){0,2})", q):
+    for m in re.finditer(
+        r"\b(?:per|by|for each|each)\s+([a-z][a-z0-9]*(?:\s+[a-z][a-z0-9]*){0,2})", q
+    ):
         phrase = (m.group(1) or "").strip()
         if not phrase:
             continue
@@ -1272,12 +1614,37 @@ def _infer_entity_from_query_terms(
 ) -> str | None:
     q = (user_query or "").lower()
     query_terms = {
-        t for t in re.findall(r"[a-z][a-z0-9_]+", q)
-        if len(t) >= 3 and t not in {
-            "top", "bottom", "highest", "lowest", "most", "least",
-            "show", "list", "give", "with", "from", "into", "over",
-            "trend", "time", "year", "month", "week", "day", "quarter",
-            "total", "average", "count", "number", "records", "values",
+        t
+        for t in re.findall(r"[a-z][a-z0-9_]+", q)
+        if len(t) >= 3
+        and t
+        not in {
+            "top",
+            "bottom",
+            "highest",
+            "lowest",
+            "most",
+            "least",
+            "show",
+            "list",
+            "give",
+            "with",
+            "from",
+            "into",
+            "over",
+            "trend",
+            "time",
+            "year",
+            "month",
+            "week",
+            "day",
+            "quarter",
+            "total",
+            "average",
+            "count",
+            "number",
+            "records",
+            "values",
         }
     }
     if not query_terms:
@@ -1288,7 +1655,8 @@ def _infer_entity_from_query_terms(
         k = (kw or "").lower().replace("_", " ").strip()
         c = (col or "").lower().replace("_", " ").strip()
         tokens = {
-            t for t in re.findall(r"[a-z][a-z0-9]+", f"{k} {c}")
+            t
+            for t in re.findall(r"[a-z][a-z0-9]+", f"{k} {c}")
             if len(t) >= 3 and t not in {"name", "type", "status", "code", "id"}
         }
         if not tokens:
@@ -1319,19 +1687,30 @@ def _post_process(
     ql = (user_query or "").lower()
     qt = parsed.get("query_type", "top_n")
     tr = parsed.get("time_ranges", [])
-    m  = parsed.get("metric")
+    m = parsed.get("metric")
 
     def _period_key(period: dict | None) -> tuple[str, str]:
         period = period or {}
         return (str(period.get("start") or ""), str(period.get("end") or ""))
 
     count_cues = (
-        "how many", "number of", "count", "orders", "records",
-        "transactions", "number of records",
+        "how many",
+        "number of",
+        "count",
+        "orders",
+        "records",
+        "transactions",
+        "number of records",
     )
     avg_cues = ("average", "avg ", "aov", "average order value")
     aggregate_cues = (
-        "total", "overall", "sum", "average", "avg", "how many", "number of",
+        "total",
+        "overall",
+        "sum",
+        "average",
+        "avg",
+        "how many",
+        "number of",
     )
     growth_cues = ("growth", "grew", "increase", "decrease", "delta", "change")
     split_cue = any(x in ql for x in (" vs ", " versus ", " compared to ", " against "))
@@ -1339,6 +1718,7 @@ def _post_process(
     goal_period_key, goal_period_label = _infer_goal_period_from_query(user_query)
 
     schema_maps: tuple[list[tuple[str, str]], list[tuple[str, str]] | None] = None  # type: ignore[assignment]
+
     def _get_schema_maps() -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
         nonlocal schema_maps
         if schema_maps is None:
@@ -1352,7 +1732,12 @@ def _post_process(
     elif any(c in ql for c in count_cues):
         parsed["metric"] = "count"
         m = "count"
-    elif m and isinstance(m, str) and not m.startswith("avg_") and any(c in ql for c in avg_cues):
+    elif (
+        m
+        and isinstance(m, str)
+        and not m.startswith("avg_")
+        and any(c in ql for c in avg_cues)
+    ):
         if m != "count":
             parsed["metric"] = f"avg_{m}"
             m = parsed["metric"]
@@ -1379,9 +1764,13 @@ def _post_process(
 
         if not parsed.get("entity"):
             entity_map_for_grouping, _ = _get_schema_maps()
-            inferred_entity = _infer_entity_from_grouping_cue(user_query, entity_map_for_grouping)
+            inferred_entity = _infer_entity_from_grouping_cue(
+                user_query, entity_map_for_grouping
+            )
             if not inferred_entity:
-                inferred_entity = _infer_entity_from_query_terms(user_query, entity_map_for_grouping)
+                inferred_entity = _infer_entity_from_query_terms(
+                    user_query, entity_map_for_grouping
+                )
             if inferred_entity:
                 parsed["entity"] = inferred_entity
 
@@ -1397,7 +1786,9 @@ def _post_process(
 
     if not parsed.get("entity") and grouping_cue:
         entity_map_for_grouping, _ = _get_schema_maps()
-        inferred_entity = _infer_entity_from_grouping_cue(user_query, entity_map_for_grouping)
+        inferred_entity = _infer_entity_from_grouping_cue(
+            user_query, entity_map_for_grouping
+        )
         if inferred_entity:
             parsed["entity"] = inferred_entity
         if not parsed.get("entity"):
@@ -1408,7 +1799,11 @@ def _post_process(
             if inferred_low_card_entity:
                 parsed["entity"] = inferred_low_card_entity
 
-    if rank_within_time_bucket and parsed.get("entity") and parsed.get("query_type") in ("top_n", "bottom_n"):
+    if (
+        rank_within_time_bucket
+        and parsed.get("entity")
+        and parsed.get("query_type") in ("top_n", "bottom_n")
+    ):
         parsed["_rank_within_time"] = True
         parsed["time_bucket"] = rank_within_time_bucket
 
@@ -1452,10 +1847,12 @@ def _post_process(
             current_filters[fk] = fv
         parsed["filters"] = current_filters
 
-    if (parsed.get("metric") == "aov"
-            and qt in ("top_n", "bottom_n")
-            and not ranking_cue
-            and not parsed.get("entity")):
+    if (
+        parsed.get("metric") == "aov"
+        and qt in ("top_n", "bottom_n")
+        and not ranking_cue
+        and not parsed.get("entity")
+    ):
         parsed["query_type"] = "aggregate"
         parsed["entity"] = None
         qt = "aggregate"
@@ -1466,17 +1863,33 @@ def _post_process(
             parsed["query_type"] = "growth_ranking"
             qt = "growth_ranking"
 
-    if qt in ("top_n", "bottom_n") and not ranking_cue and not split_cue and any(c in ql for c in aggregate_cues) and not (grouping_cue and parsed.get("entity")):
+    if (
+        qt in ("top_n", "bottom_n")
+        and not ranking_cue
+        and not split_cue
+        and any(c in ql for c in aggregate_cues)
+        and not (grouping_cue and parsed.get("entity"))
+    ):
         parsed["query_type"] = "aggregate"
         parsed["entity"] = None
         qt = "aggregate"
 
-    if qt == "aggregate" and grouping_cue and parsed.get("entity") and any(c in ql for c in aggregate_cues):
+    if (
+        qt == "aggregate"
+        and grouping_cue
+        and parsed.get("entity")
+        and any(c in ql for c in aggregate_cues)
+    ):
         parsed["query_type"] = "top_n"
         parsed["_disable_limit"] = True
         qt = "top_n"
 
-    if qt in ("top_n", "bottom_n") and grouping_cue and parsed.get("entity") and not ranking_cue:
+    if (
+        qt in ("top_n", "bottom_n")
+        and grouping_cue
+        and parsed.get("entity")
+        and not ranking_cue
+    ):
         parsed["query_type"] = "top_n"
         parsed["_disable_limit"] = True
         qt = "top_n"
@@ -1495,7 +1908,9 @@ def _post_process(
         parsed["query_type"] = "forecast"
         parsed["entity"] = None
         parsed["time_bucket"] = _detect_forecast_bucket(user_query)
-        parsed["forecast_periods"] = _extract_forecast_periods(user_query, parsed["time_bucket"])
+        parsed["forecast_periods"] = _extract_forecast_periods(
+            user_query, parsed["time_bucket"]
+        )
         if not parsed.get("forecast_method"):
             parsed["forecast_method"] = "auto"
         qt = "forecast"
@@ -1522,7 +1937,9 @@ def _post_process(
         if target_value is None:
             parsed["is_complete"] = False
             parsed["_force_clarification"] = True
-            parsed["clarification_question"] = "What target value should I track by end of month?"
+            parsed["clarification_question"] = (
+                "What target value should I track by end of month?"
+            )
         qt = "forecast"
 
     if _is_goal_set_query(user_query) and not ranking_cue:
@@ -1550,7 +1967,9 @@ def _post_process(
         if not metric_value:
             parsed["is_complete"] = False
             parsed["_force_clarification"] = True
-            parsed["clarification_question"] = "Which metric should I set this target for?"
+            parsed["clarification_question"] = (
+                "Which metric should I set this target for?"
+            )
         elif not target_value:
             parsed["is_complete"] = False
             parsed["_force_clarification"] = True
@@ -1567,7 +1986,7 @@ def _post_process(
         and not (split_cue and parsed.get("entity"))
     ):
         parsed["query_type"] = "time_series"
-        parsed["entity"]     = None
+        parsed["entity"] = None
         qt = "time_series"
         if not parsed.get("time_bucket"):
             parsed["time_bucket"] = _detect_time_bucket(user_query)
@@ -1576,9 +1995,13 @@ def _post_process(
         mtop = _TOPN_RE.search(user_query)
         parsed["query_type"] = "top_n"
         if mtop:
-            parsed["query_type"] = "bottom_n" if mtop.group(1).lower() == "bottom" else "top_n"
+            parsed["query_type"] = (
+                "bottom_n" if mtop.group(1).lower() == "bottom" else "top_n"
+            )
             parsed["top_n"] = int(mtop.group(2))
-        elif any(x in user_query.lower() for x in ["lowest", "least", "bottom", "worst"]):
+        elif any(
+            x in user_query.lower() for x in ["lowest", "least", "bottom", "worst"]
+        ):
             parsed["query_type"] = "bottom_n"
         parsed["time_bucket"] = None
         qt = parsed["query_type"]
@@ -1591,7 +2014,9 @@ def _post_process(
         if not parsed.get("time_bucket"):
             parsed["time_bucket"] = _detect_forecast_bucket(user_query)
         if not parsed.get("forecast_periods"):
-            parsed["forecast_periods"] = _extract_forecast_periods(user_query, parsed.get("time_bucket", "month"))
+            parsed["forecast_periods"] = _extract_forecast_periods(
+                user_query, parsed.get("time_bucket", "month")
+            )
         if not parsed.get("forecast_method"):
             parsed["forecast_method"] = "auto"
 
@@ -1600,9 +2025,14 @@ def _post_process(
         if extracted:
             parsed["time_ranges"] = extracted
             tr = extracted
-            if (suggested_qt == "comparison"
-                    and parsed.get("query_type") not in ("comparison", "growth_ranking", "intersection")
-                    and not (split_cue and parsed.get("entity") and parsed.get("_disable_limit"))):
+            if (
+                suggested_qt == "comparison"
+                and parsed.get("query_type")
+                not in ("comparison", "growth_ranking", "intersection")
+                and not (
+                    split_cue and parsed.get("entity") and parsed.get("_disable_limit")
+                )
+            ):
                 parsed["query_type"] = "comparison"
                 qt = "comparison"
         elif qt == "time_series" and _looks_like_all_time_trend(user_query):
@@ -1627,7 +2057,9 @@ def _post_process(
 
     if (parsed.get("metric") or "").lower() == "aov":
         _, metric_map = _get_schema_maps()
-        parsed.setdefault("_aov_revenue_col", _select_primary_revenue_column(metric_map))
+        parsed.setdefault(
+            "_aov_revenue_col", _select_primary_revenue_column(metric_map)
+        )
         parsed.setdefault("_count_distinct_key", _select_primary_count_key())
         parsed["semantic_metric"] = "aov"
 
@@ -1640,11 +2072,14 @@ def _post_process(
             current_metric = (parsed.get("metric") or "").lower().strip()
             avg_mode = bool(current_metric.startswith("avg_"))
             current_base = current_metric[4:] if avg_mode else current_metric
-            preferred_metric = f"avg_{preferred_revenue}" if avg_mode else preferred_revenue
+            preferred_metric = (
+                f"avg_{preferred_revenue}" if avg_mode else preferred_revenue
+            )
             if (
                 not current_metric
                 or current_metric == "count"
-                or _revenue_col_score(current_base) < _revenue_col_score(preferred_revenue)
+                or _revenue_col_score(current_base)
+                < _revenue_col_score(preferred_revenue)
             ):
                 parsed["metric"] = preferred_metric
             parsed["semantic_metric"] = "avg_revenue" if avg_mode else "revenue"
@@ -1660,7 +2095,13 @@ def _post_process(
 
     # Late guard: if ranking-style query still has no entity, infer one from
     # user phrasing + live schema column names.
-    if parsed.get("query_type") in ("top_n", "bottom_n", "threshold", "growth_ranking", "zero_filter") and not parsed.get("entity"):
+    if parsed.get("query_type") in (
+        "top_n",
+        "bottom_n",
+        "threshold",
+        "growth_ranking",
+        "zero_filter",
+    ) and not parsed.get("entity"):
         entity_map, _ = _get_schema_maps()
         inferred_entity = _infer_entity_from_grouping_cue(user_query, entity_map)
         if not inferred_entity:
@@ -1668,7 +2109,11 @@ def _post_process(
         if inferred_entity:
             parsed["entity"] = inferred_entity
 
-    if rank_within_time_bucket and parsed.get("entity") and parsed.get("query_type") in ("top_n", "bottom_n"):
+    if (
+        rank_within_time_bucket
+        and parsed.get("entity")
+        and parsed.get("query_type") in ("top_n", "bottom_n")
+    ):
         parsed["_rank_within_time"] = True
         parsed["time_bucket"] = rank_within_time_bucket
 
@@ -1704,7 +2149,7 @@ def _post_process(
             return parsed
 
     if qt in ("aggregate", "time_series", "forecast") and m and tr:
-        parsed["is_complete"]            = True
+        parsed["is_complete"] = True
         parsed["clarification_question"] = None
     if qt in ("comparison", "intersection"):
         if m and len(tr) >= 2 and _period_key(tr[0]) != _period_key(tr[1]):
@@ -1718,7 +2163,7 @@ def _post_process(
             )
     if qt in ("top_n", "bottom_n", "threshold", "zero_filter"):
         if parsed.get("entity") and tr:
-            parsed["is_complete"]            = True
+            parsed["is_complete"] = True
             parsed["clarification_question"] = None
     if qt == "growth_ranking":
         if not _has_metric_cue(user_query):
@@ -1727,7 +2172,11 @@ def _post_process(
                 "Which metric should I use for growth ranking "
                 "(e.g. revenue, quantity, record count)?"
             )
-        elif parsed.get("entity") and len(tr) >= 2 and _period_key(tr[0]) != _period_key(tr[1]):
+        elif (
+            parsed.get("entity")
+            and len(tr) >= 2
+            and _period_key(tr[0]) != _period_key(tr[1])
+        ):
             parsed["is_complete"] = True
             parsed["clarification_question"] = None
         else:
@@ -1741,6 +2190,7 @@ def _post_process(
 
 
 # ── Qwen API call ─────────────────────────────────────────────────────────────
+
 
 def _call_parse_model(user_query: str, schema: str, model: str) -> tuple[dict, dict]:
     system = _SYSTEM_TEMPLATE.format(schema=schema)
@@ -1822,7 +2272,11 @@ def _check_clarity(parsed: dict) -> tuple[bool, str | None]:
     ent = parsed.get("entity")
     cq = parsed.get("clarification_question")
 
-    goal_cfg = parsed.get("_goal_tracking") if isinstance(parsed.get("_goal_tracking"), dict) else None
+    goal_cfg = (
+        parsed.get("_goal_tracking")
+        if isinstance(parsed.get("_goal_tracking"), dict)
+        else None
+    )
     if goal_cfg:
         try:
             target_val = float(goal_cfg.get("target_value"))
@@ -1833,7 +2287,9 @@ def _check_clarity(parsed: dict) -> tuple[bool, str | None]:
         if not m:
             return False, (cq or "Which metric should I track against the target?")
         if not tr:
-            return False, (cq or "Which time period should I use for this goal tracking request?")
+            return False, (
+                cq or "Which time period should I use for this goal tracking request?"
+            )
 
     if parsed.get("_force_clarification") and cq:
         return False, str(cq)
@@ -1841,8 +2297,8 @@ def _check_clarity(parsed: dict) -> tuple[bool, str | None]:
     if (m or "").lower() == "aov":
         if not parsed.get("_aov_revenue_col") or not parsed.get("_count_distinct_key"):
             return False, (
-                cq or
-                "I need one revenue column and one order identifier column to compute AOV. Which should I use?"
+                cq
+                or "I need one revenue column and one order identifier column to compute AOV. Which should I use?"
             )
 
     if qt in ("aggregate", "time_series", "forecast"):
@@ -1857,9 +2313,14 @@ def _check_clarity(parsed: dict) -> tuple[bool, str | None]:
 
     if qt in ("comparison", "intersection", "growth_ranking"):
         if not tr or len(tr) < 2:
-            return False, (cq or "Please specify two time periods to compare (e.g. 2023 vs 2024).")
+            return False, (
+                cq or "Please specify two time periods to compare (e.g. 2023 vs 2024)."
+            )
         if _period_key(tr[0]) == _period_key(tr[1]):
-            return False, (cq or "Please specify two different time periods to compare (e.g. 2023 vs 2024).")
+            return False, (
+                cq
+                or "Please specify two different time periods to compare (e.g. 2023 vs 2024)."
+            )
         if qt == "growth_ranking" and not ent:
             return False, cq or _default_clarification(parsed)
         return True, None
@@ -1871,172 +2332,10 @@ def _check_clarity(parsed: dict) -> tuple[bool, str | None]:
 
 # ── Handler ───────────────────────────────────────────────────────────────────
 
+
 async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
-    query_id      = input_data.get("queryId")
-    user_query    = input_data.get("query", "")
-    merged_parsed = input_data.get("mergedParsed")
-    followup_ctx  = input_data.get("followupContext") or {}
+    from services.parse_intent_service import run_parse_intent
+    from types import SimpleNamespace
 
-    mandatory_filters = _get_mandatory_filters()
-    if mandatory_filters:
-        ctx.logger.info("🔒 Mandatory filters detected", {
-            "queryId": query_id, "filters": mandatory_filters
-        })
-
-    if merged_parsed:
-        ctx.logger.info("Clarification path", {"queryId": query_id})
-        parsed = _post_process(merged_parsed, user_query, mandatory_filters)
-        parsed["_parser_source"] = "clarification_merge"
-    else:
-        ctx.logger.info("Qwen intent extraction", {"queryId": query_id, "query": user_query})
-        try:
-            schema = get_schema_prompt(mode="compact", user_query=user_query)
-            parsed, usage, model_used = _call_parse_with_retry_and_fallback(user_query, schema)
-            if followup_ctx:
-                parsed = _merge_followup_intent(parsed, user_query, followup_ctx)
-            parsed = _post_process(parsed, user_query, mandatory_filters)
-            source = f"llm_{model_used.split('/')[-1]}"
-            if parsed.get("_followup_applied"):
-                source += "_followup_merge"
-                ctx.logger.info("Follow-up context merged", {
-                    "queryId": query_id,
-                    "previousQueryId": parsed.get("_followup_from_query_id"),
-                })
-            parsed["_parser_source"] = source
-            log_tokens(ctx, query_id, "ParseIntent", model_used, usage)
-            await add_tokens_to_state(ctx, query_id, "ParseIntent", model_used, usage)
-            ctx.logger.info("Intent parsed", {"queryId": query_id, "parsed": parsed})
-        except Exception as exc:
-            ctx.logger.error("Intent parse failed", {"error": str(exc), "queryId": query_id})
-            qs = await ctx.state.get("queries", query_id)
-            if qs:
-                now_iso = datetime.now(timezone.utc).isoformat()
-                prev_ts = qs.get("status_timestamps", {})
-                await ctx.state.set("queries", query_id, {
-                    **qs,
-                    "status": "error",
-                    "error": f"Parse intent model failed: {exc}",
-                    "updatedAt": now_iso,
-                    "status_timestamps": {**prev_ts, "error": now_iso},
-                })
-            return
-
-    qs = await ctx.state.get("queries", query_id)
-
-    # Reuse previously set goal target for missing-target tracking asks.
-    goal_cfg = parsed.get("_goal_tracking") if isinstance(parsed.get("_goal_tracking"), dict) else None
-    if goal_cfg:
-        target_val = None
-        try:
-            target_val = float(goal_cfg.get("target_value"))
-        except Exception:
-            target_val = None
-
-        if not target_val or target_val <= 0:
-            metric_for_goal = str(parsed.get("metric") or "").strip().lower()
-            period_key = str(goal_cfg.get("period_key") or "")
-            store = await _load_goal_store(ctx)
-            remembered_target, remembered_label = _lookup_goal_target(store, metric_for_goal, period_key)
-            if remembered_target and remembered_target > 0:
-                goal_cfg["target_value"] = remembered_target
-                if remembered_label:
-                    goal_cfg["period_label"] = remembered_label
-                parsed["_goal_tracking"] = goal_cfg
-                parsed["time_ranges"] = _goal_time_range_for_period_key(str(goal_cfg.get("period_key") or ""))
-                parsed["_force_clarification"] = False
-                parsed["clarification_question"] = None
-                parsed["is_complete"] = True
-
-        # Persist explicit target when provided in tracking query.
-        try:
-            final_target = float(goal_cfg.get("target_value"))
-        except Exception:
-            final_target = 0.0
-        if final_target > 0:
-            await _save_goal_target(
-                ctx,
-                metric=str(parsed.get("metric") or "").strip().lower(),
-                period_key=str(goal_cfg.get("period_key") or ""),
-                period_label=str(goal_cfg.get("period_label") or ""),
-                target_value=final_target,
-                query_id=query_id,
-            )
-
-    # Target-setting request: persist target and complete without SQL execution.
-    goal_set_cfg = parsed.get("_goal_set_only") if isinstance(parsed.get("_goal_set_only"), dict) else None
-    if goal_set_cfg:
-        metric = str(goal_set_cfg.get("metric") or "").strip().lower()
-        period_key = str(goal_set_cfg.get("period_key") or "")
-        period_label = str(goal_set_cfg.get("period_label") or "")
-        horizon_label = str(goal_set_cfg.get("horizon_label") or "end of month")
-        try:
-            target_value = float(goal_set_cfg.get("target_value"))
-        except Exception:
-            target_value = 0.0
-
-        if metric and period_key and target_value > 0:
-            await _save_goal_target(
-                ctx,
-                metric=metric,
-                period_key=period_key,
-                period_label=period_label,
-                target_value=target_value,
-                query_id=query_id,
-            )
-
-            if qs:
-                now_iso = datetime.now(timezone.utc).isoformat()
-                prev_ts = qs.get("status_timestamps", {})
-                metric_label = _human_metric_label(metric)
-                msg = (
-                    f"Target saved: {_human_metric_label(metric)} target for {period_label or period_key} "
-                    f"is {target_value:,.2f}.\n"
-                    f"Ask: 'Are we on track by {horizon_label}?'"
-                )
-                await ctx.state.set("queries", query_id, {
-                    **qs,
-                    "status": "completed",
-                    "parsed": parsed,
-                    "formattedText": msg,
-                    "formattedItems": [
-                        {"label": "Metric", "value": metric_label},
-                        {"label": "Period", "value": period_label or period_key},
-                        {"label": "Target", "value": f"{target_value:,.2f}"},
-                    ],
-                    "updatedAt": now_iso,
-                    "completedAt": now_iso,
-                    "status_timestamps": {**prev_ts, "intent_parsed": now_iso, "ambiguity_checked": now_iso, "completed": now_iso},
-                })
-            return
-
-    is_complete, clarification = _check_clarity(parsed)
-    if qs:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        prev_ts = qs.get("status_timestamps", {})
-        ts = {**prev_ts, "intent_parsed": now_iso}
-        if not is_complete:
-            ts["needs_clarification"] = now_iso
-            await ctx.state.set("queries", query_id, {
-                **qs,
-                "status": "needs_clarification",
-                "parsed": parsed,
-                "clarification": clarification,
-                "updatedAt": now_iso,
-                "status_timestamps": ts,
-            })
-            return
-
-        ts["ambiguity_checked"] = now_iso
-        await ctx.state.set("queries", query_id, {
-            **qs,
-            "status": "ambiguity_checked",
-            "parsed": parsed,
-            "updatedAt": now_iso,
-            "status_timestamps": ts,
-        })
-
-    await ctx.enqueue({
-        "topic": "query::text.to.sql",
-        "data":  {"queryId": query_id, "query": user_query, "parsed": parsed},
-    })
-
+    step_module = sys.modules.get(__name__) or SimpleNamespace(**globals())
+    await run_parse_intent(step_module, input_data, ctx)

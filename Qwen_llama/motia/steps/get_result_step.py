@@ -1,13 +1,17 @@
-"""Get Query Result — HTTP endpoint to retrieve processed query results.
+"""Get Query Result — HTTP endpoint to retrieve processed query results."""
 
-This is a utility step that allows users to check the status and
-results of a previously submitted query using its query ID.
-
-Trigger: HTTP GET /query/:queryId
-"""
-
+import os
+import sys
 from typing import Any
+
 from motia import ApiRequest, ApiResponse, FlowContext, http
+
+_STEPS_DIR = os.path.dirname(os.path.abspath(__file__))
+_MOTIA_DIR = os.path.dirname(_STEPS_DIR)
+_PROJECT_ROOT = os.path.dirname(_MOTIA_DIR)
+for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 config = {
     "name": "GetQueryResult",
@@ -21,16 +25,7 @@ config = {
 
 
 async def handler(request: ApiRequest[Any], ctx: FlowContext[Any]) -> ApiResponse[Any]:
-    query_id = request.path_params.get("queryId", "")
+    from step_services import get_query_result_response
 
-    if not query_id:
-        return ApiResponse(status=400, body={"error": "Missing queryId parameter"})
-
-    ctx.logger.info("📋 Fetching query result", {"queryId": query_id})
-
-    query_state = await ctx.state.get("queries", query_id)
-
-    if not query_state:
-        return ApiResponse(status=404, body={"error": f"Query {query_id} not found"})
-
-    return ApiResponse(status=200, body=query_state)
+    status, body = await get_query_result_response(request, ctx)
+    return ApiResponse(status=status, body=body)

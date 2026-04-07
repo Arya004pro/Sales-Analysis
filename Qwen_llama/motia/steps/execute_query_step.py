@@ -41,7 +41,14 @@ config = {
 
 # ── Datetime column hints ──────────────────────────────────────────────────────
 _DATETIME_COL_HINTS = {
-    "date", "time", "timestamp", "created", "updated", "at", "on", "when",
+    "date",
+    "time",
+    "timestamp",
+    "created",
+    "updated",
+    "at",
+    "on",
+    "when",
 }
 
 # BIGINT-like types that might store epoch timestamps
@@ -49,22 +56,27 @@ _BIGINT_TYPES = ("BIGINT", "INT8", "LONG", "HUGEINT", "INT64")
 
 # ── SQL rewrite patterns ──────────────────────────────────────────────────────
 _EXTRACT_YEAR_PAT = re.compile(
-    r"EXTRACT\s*\(\s*YEAR\s+FROM\s+(\w+)\s*\)\s*=\s*\?", re.IGNORECASE)
+    r"EXTRACT\s*\(\s*YEAR\s+FROM\s+(\w+)\s*\)\s*=\s*\?", re.IGNORECASE
+)
 _EXTRACT_YEAR_IN_PARAMS_PAT = re.compile(
     r"EXTRACT\s*\(\s*YEAR\s+FROM[^\)]*\)\s+IN\s*\(\s*\?\s*,\s*\?\s*\)",
     re.IGNORECASE,
 )
 _EXTRACT_MONTH_PAT = re.compile(
     r"\s*AND\s+EXTRACT\s*\(\s*MONTH\s+FROM\s+\w+\s*\)\s+BETWEEN\s+\d+\s+AND\s+\d+",
-    re.IGNORECASE)
+    re.IGNORECASE,
+)
 _EXTRACT_ANY_PAT = re.compile(
-    r"EXTRACT\s*\(\s*(YEAR|MONTH|DAY|QUARTER)\s+FROM", re.IGNORECASE)
+    r"EXTRACT\s*\(\s*(YEAR|MONTH|DAY|QUARTER)\s+FROM", re.IGNORECASE
+)
 _BETWEEN_PAT = re.compile(r"(\w+)\s+BETWEEN\s+\?\s+AND\s+\?", re.IGNORECASE)
 _GROUP_BY_CLAUSE_RE = re.compile(
-    r"(?is)\bGROUP\s+BY\b(?P<group_by>.*?)(?=(\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|$))")
+    r"(?is)\bGROUP\s+BY\b(?P<group_by>.*?)(?=(\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|$))"
+)
 _NAME_EXPR_RE = re.compile(r"(?is)\bSELECT\s+(?P<expr>.*?)\s+AS\s+name\b")
 _MISSING_GB_COL_RE = re.compile(
-    r'column\s+"([^"]+)"\s+must appear in the GROUP BY', re.IGNORECASE)
+    r'column\s+"([^"]+)"\s+must appear in the GROUP BY', re.IGNORECASE
+)
 _HAS_GROUP_BY_RE = re.compile(r"\bGROUP\s+BY\b", re.IGNORECASE)
 
 _BIGINT_MAP_CACHE_TTL_SECONDS = 120.0
@@ -73,6 +85,7 @@ _bigint_map_cache_at: float = 0.0
 
 
 # ── BIGINT epoch detection (NEW) ───────────────────────────────────────────────
+
 
 def _build_bigint_datetime_map() -> dict[str, str]:
     """
@@ -85,18 +98,27 @@ def _build_bigint_datetime_map() -> dict[str, str]:
     """
     global _bigint_map_cache_value, _bigint_map_cache_at
     now = time.monotonic()
-    if _bigint_map_cache_value is not None and (now - _bigint_map_cache_at) < _BIGINT_MAP_CACHE_TTL_SECONDS:
+    if (
+        _bigint_map_cache_value is not None
+        and (now - _bigint_map_cache_at) < _BIGINT_MAP_CACHE_TTL_SECONDS
+    ):
         return dict(_bigint_map_cache_value)
 
     result: dict[str, str] = {}
     try:
         conn = get_read_connection()
-        tables = [r[0] for r in conn.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
-        ).fetchall()]
+        tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='main'"
+            ).fetchall()
+        ]
 
         for table in tables:
-            cols = [(c[0], c[1].upper()) for c in conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
             for col, dtype in cols:
                 col_l = col.lower()
                 # Only columns whose name contains a date-like keyword
@@ -148,7 +170,9 @@ def _detect_epoch_scale(conn, table: str, col: str) -> str | None:
     return f'epoch_ms("{col}")'
 
 
-def _rewrite_bigint_epoch_cols(sql: str, bigint_map: dict[str, str]) -> tuple[str, bool]:
+def _rewrite_bigint_epoch_cols(
+    sql: str, bigint_map: dict[str, str]
+) -> tuple[str, bool]:
     """
     Rewrite SQL so BIGINT epoch datetime columns use proper DuckDB epoch functions.
 
@@ -173,22 +197,26 @@ def _rewrite_bigint_epoch_cols(sql: str, bigint_map: dict[str, str]) -> tuple[st
         col_pattern = rf'(?:"(?:{col_re})"|\b(?:{col_re})\b)'
 
         # 1. CAST(col AS DATE) — the most common failure case
-        pat = re.compile(rf'CAST\s*\(\s*{col_pattern}\s+AS\s+DATE\s*\)', re.IGNORECASE)
+        pat = re.compile(rf"CAST\s*\(\s*{col_pattern}\s+AS\s+DATE\s*\)", re.IGNORECASE)
         if pat.search(sql):
-            sql = pat.sub(f'CAST({epoch_expr} AS DATE)', sql)
+            sql = pat.sub(f"CAST({epoch_expr} AS DATE)", sql)
             changed = True
 
         # 2. EXTRACT(X FROM col) — used in year/month grouping
-        pat = re.compile(rf'EXTRACT\s*\(\s*(\w+)\s+FROM\s+{col_pattern}\s*\)', re.IGNORECASE)
+        pat = re.compile(
+            rf"EXTRACT\s*\(\s*(\w+)\s+FROM\s+{col_pattern}\s*\)", re.IGNORECASE
+        )
         if pat.search(sql):
             # epoch_ms() returns TIMESTAMP, EXTRACT works directly on TIMESTAMP
-            sql = pat.sub(lambda m, ep=epoch_expr: f'EXTRACT({m.group(1)} FROM {ep})', sql)
+            sql = pat.sub(
+                lambda m, ep=epoch_expr: f"EXTRACT({m.group(1)} FROM {ep})", sql
+            )
             changed = True
 
         # 3. STRFTIME(col, '...') — used in time bucket expressions
-        pat = re.compile(rf'STRFTIME\s*\(\s*{col_pattern}\s*,', re.IGNORECASE)
+        pat = re.compile(rf"STRFTIME\s*\(\s*{col_pattern}\s*,", re.IGNORECASE)
         if pat.search(sql):
-            sql = pat.sub(f'STRFTIME({epoch_expr},', sql)
+            sql = pat.sub(f"STRFTIME({epoch_expr},", sql)
             changed = True
 
         # 4. DATE_TRUNC('bucket', col)
@@ -196,24 +224,28 @@ def _rewrite_bigint_epoch_cols(sql: str, bigint_map: dict[str, str]) -> tuple[st
             rf"DATE_TRUNC\s*\(\s*('[^']+')\s*,\s*{col_pattern}\s*\)", re.IGNORECASE
         )
         if pat.search(sql):
-            sql = pat.sub(lambda m, ep=epoch_expr: f'DATE_TRUNC({m.group(1)}, {ep})', sql)
+            sql = pat.sub(
+                lambda m, ep=epoch_expr: f"DATE_TRUNC({m.group(1)}, {ep})", sql
+            )
             changed = True
 
         # 5. YEAR(col) / MONTH(col) / DAY(col) scalar functions
         for fn in ("YEAR", "MONTH", "DAY", "QUARTER", "WEEK"):
-            pat = re.compile(rf'\b{fn}\s*\(\s*{col_pattern}\s*\)', re.IGNORECASE)
+            pat = re.compile(rf"\b{fn}\s*\(\s*{col_pattern}\s*\)", re.IGNORECASE)
             if pat.search(sql):
-                sql = pat.sub(f'{fn}({epoch_expr})', sql)
+                sql = pat.sub(f"{fn}({epoch_expr})", sql)
                 changed = True
 
         # 6. Bare column comparison: col >= ? or col < ? (without any cast)
         # Only apply if no epoch conversion is already present for this column.
         if epoch_expr not in sql:
-            pat = re.compile(rf'{col_pattern}\s*(>=|<=|>|<|=)\s*\?', re.IGNORECASE)
+            pat = re.compile(rf"{col_pattern}\s*(>=|<=|>|<|=)\s*\?", re.IGNORECASE)
             if pat.search(sql):
                 sql = pat.sub(
-                    lambda m, ep=epoch_expr: f'CAST({ep} AS DATE) {m.group(1).strip()} ?',
-                    sql
+                    lambda m, ep=epoch_expr: (
+                        f"CAST({ep} AS DATE) {m.group(1).strip()} ?"
+                    ),
+                    sql,
                 )
                 changed = True
 
@@ -222,9 +254,11 @@ def _rewrite_bigint_epoch_cols(sql: str, bigint_map: dict[str, str]) -> tuple[st
 
 # ── Schema helpers ─────────────────────────────────────────────────────────────
 
+
 def _get_id_name_pairs() -> dict[str, str]:
     """Return {name_col: best_discriminator_col} for deduplication."""
     from collections import defaultdict
+
     try:
         conn = get_read_connection()
         rows = conn.execute(
@@ -240,8 +274,13 @@ def _get_id_name_pairs() -> dict[str, str]:
         table_cols[table].append(col.lower())
 
     _CONTACT_DISCRIMINATORS = (
-        "phone", "phone_number", "mobile", "mobile_number",
-        "email", "email_address", "contact",
+        "phone",
+        "phone_number",
+        "mobile",
+        "mobile_number",
+        "email",
+        "email_address",
+        "contact",
     )
 
     def _best_disc(name_col: str, col_set: set) -> str | None:
@@ -272,6 +311,7 @@ def _get_id_name_pairs() -> dict[str, str]:
 
 # ── Rewrite: add ID to GROUP BY ────────────────────────────────────────────────
 
+
 def _repair_group_by_add_id(sql: str) -> tuple[str, bool]:
     """Prepend discriminator key to GROUP BY to prevent same-name entity merging."""
     if not _HAS_GROUP_BY_RE.search(sql):
@@ -288,12 +328,12 @@ def _repair_group_by_add_id(sql: str) -> tuple[str, bool]:
     gb_raw = gb_match.group("group_by").strip()
 
     def _strip_alias(token: str) -> str:
-        t = token.strip().strip('"').strip('`')
+        t = token.strip().strip('"').strip("`")
         if "." in t:
             t = t.split(".")[-1]
         return t.lower()
 
-    gb_tokens_raw  = [t.strip() for t in gb_raw.split(",") if t.strip()]
+    gb_tokens_raw = [t.strip() for t in gb_raw.split(",") if t.strip()]
     gb_tokens_bare = [_strip_alias(t) for t in gb_tokens_raw]
 
     changed = False
@@ -315,6 +355,7 @@ def _repair_group_by_add_id(sql: str) -> tuple[str, bool]:
 
 
 # ── Existing helpers ──────────────────────────────────────────────────────────
+
 
 def _exclusive_end(d: date) -> date:
     return d + timedelta(days=1)
@@ -353,21 +394,23 @@ def _has_extract(sql: str) -> bool:
 
 
 def _repair_group_by_missing_name(sql: str, error_text: str) -> str | None:
-    err_m  = _MISSING_GB_COL_RE.search(error_text or "")
-    gb_m   = _GROUP_BY_CLAUSE_RE.search(sql or "")
+    err_m = _MISSING_GB_COL_RE.search(error_text or "")
+    gb_m = _GROUP_BY_CLAUSE_RE.search(sql or "")
     name_m = _NAME_EXPR_RE.search(sql or "")
     if not (err_m and gb_m and name_m):
         return None
-    missing_col  = err_m.group(1).strip()
-    name_expr    = name_m.group("expr").strip()
+    missing_col = err_m.group(1).strip()
+    name_expr = name_m.group("expr").strip()
     if not name_expr:
         return None
     group_by_raw = gb_m.group("group_by")
-    if (missing_col.lower() in group_by_raw.lower()
-            or name_expr.lower() in group_by_raw.lower()):
+    if (
+        missing_col.lower() in group_by_raw.lower()
+        or name_expr.lower() in group_by_raw.lower()
+    ):
         return None
     fixed = f"{group_by_raw.strip()}, {name_expr}"
-    s, e  = gb_m.span("group_by")
+    s, e = gb_m.span("group_by")
     return sql[:s] + " " + fixed + " " + sql[e:]
 
 
@@ -377,12 +420,23 @@ def _repair_add_missing_group_by(sql: str, error_text: str) -> str | None:
     name_m = _NAME_EXPR_RE.search(sql or "")
     if not name_m:
         return None
-    name_expr  = name_m.group("expr").strip()
+    name_expr = name_m.group("expr").strip()
     expr_upper = name_expr.upper()
-    is_time_bucket = any(kw in expr_upper for kw in [
-        "EXTRACT(", "STRFTIME(", "DATE_TRUNC(", "YEAR(", "MONTH(",
-        "QUARTER(", "WEEK(", "DAY(", "EPOCH_MS(", "TO_TIMESTAMP(",
-    ])
+    is_time_bucket = any(
+        kw in expr_upper
+        for kw in [
+            "EXTRACT(",
+            "STRFTIME(",
+            "DATE_TRUNC(",
+            "YEAR(",
+            "MONTH(",
+            "QUARTER(",
+            "WEEK(",
+            "DAY(",
+            "EPOCH_MS(",
+            "TO_TIMESTAMP(",
+        ]
+    )
     if not is_time_bucket:
         return None
     order_m = re.search(r"\bORDER\s+BY\b", sql, re.IGNORECASE)
@@ -410,33 +464,47 @@ def _rows_to_dicts(rows: list, parsed: dict | None = None) -> list[dict]:
         if len(row) == 1:
             result.append({"value": float(row[0]) if row[0] is not None else None})
         elif len(row) == 2:
-            result.append({"name":  str(row[0]),
-                           "value": float(row[1]) if row[1] is not None else 0.0})
+            result.append(
+                {
+                    "name": str(row[0]),
+                    "value": float(row[1]) if row[1] is not None else 0.0,
+                }
+            )
         elif len(row) == 3:
             if rank_within_time:
-                result.append({
-                    "period": str(row[0]),
-                    "name": str(row[1]),
-                    "value": float(row[2]) if row[2] is not None else 0.0,
-                })
+                result.append(
+                    {
+                        "period": str(row[0]),
+                        "name": str(row[1]),
+                        "value": float(row[2]) if row[2] is not None else 0.0,
+                    }
+                )
             else:
-                result.append({"name":   str(row[0]),
-                               "value1": float(row[1]) if row[1] is not None else 0.0,
-                               "value2": float(row[2]) if row[2] is not None else 0.0})
+                result.append(
+                    {
+                        "name": str(row[0]),
+                        "value1": float(row[1]) if row[1] is not None else 0.0,
+                        "value2": float(row[2]) if row[2] is not None else 0.0,
+                    }
+                )
         elif len(row) >= 4:
-            result.append({"name":   str(row[0]),
-                           "value1": float(row[1]) if row[1] is not None else 0.0,
-                           "value2": float(row[2]) if row[2] is not None else 0.0,
-                           "delta":  float(row[3]) if row[3] is not None else 0.0})
+            result.append(
+                {
+                    "name": str(row[0]),
+                    "value1": float(row[1]) if row[1] is not None else 0.0,
+                    "value2": float(row[2]) if row[2] is not None else 0.0,
+                    "delta": float(row[3]) if row[3] is not None else 0.0,
+                }
+            )
     return result
 
 
 def _build_params(sql: str, parsed: dict) -> tuple:
-    n     = sql.count("%s") + sql.count("?")
-    trs   = parsed.get("time_ranges", [])
-    qt    = parsed.get("query_type", "top_n")
+    n = sql.count("%s") + sql.count("?")
+    trs = parsed.get("time_ranges", [])
+    qt = parsed.get("query_type", "top_n")
     top_n = parsed.get("top_n", 5) or 5
-    thr   = parsed.get("threshold") or {}
+    thr = parsed.get("threshold") or {}
 
     if n == 0:
         return ()
@@ -451,8 +519,10 @@ def _build_params(sql: str, parsed: dict) -> tuple:
         return _exclusive_end(d) if uses_exclusive else d
 
     if qt in ("comparison", "growth_ranking", "intersection") and len(trs) >= 2:
-        s1 = _d(trs[0]["start"]);  e1 = _end(trs[0]["end"])
-        s2 = _d(trs[1]["start"]);  e2 = _end(trs[1]["end"])
+        s1 = _d(trs[0]["start"])
+        e1 = _end(trs[0]["end"])
+        s2 = _d(trs[1]["start"])
+        e2 = _end(trs[1]["end"])
         if n == 4 and _EXTRACT_YEAR_IN_PARAMS_PAT.search(sql):
             y1 = _d(trs[0]["start"]).year
             y2 = _d(trs[1]["start"]).year
@@ -465,8 +535,10 @@ def _build_params(sql: str, parsed: dict) -> tuple:
             s_min = min(s1, s2)
             e_max = max(e1, e2)
             return (s_min, e_max, y1, y2, top_n)
-        if n == 4:  return (s1, e1, s2, e2)
-        if n == 5:  return (s1, e1, s2, e2, top_n)
+        if n == 4:
+            return (s1, e1, s2, e2)
+        if n == 5:
+            return (s1, e1, s2, e2, top_n)
         base = [s1, e1, s2, e2]
         while len(base) < n - 1:
             base += [s1, e1]
@@ -479,10 +551,11 @@ def _build_params(sql: str, parsed: dict) -> tuple:
         e = _end(trs[0]["end"])
     else:
         today = date.today()
-        s     = today.replace(month=1, day=1)
-        e     = _exclusive_end(date(today.year, 12, 31))
+        s = today.replace(month=1, day=1)
+        e = _exclusive_end(date(today.year, 12, 31))
 
-    if n == 2:  return (s, e)
+    if n == 2:
+        return (s, e)
     if n == 3:
         if qt == "threshold" and thr.get("type") == "absolute":
             return (s, e, thr.get("value"))
@@ -520,133 +593,22 @@ async def _error(ctx, qs, query_id, msg):
     if qs:
         now_iso = datetime.now(timezone.utc).isoformat()
         prev_ts = qs.get("status_timestamps", {})
-        await ctx.state.set("queries", query_id, {
-            **qs, "status": "error", "error": msg,
-            "updatedAt": now_iso,
-            "status_timestamps": {**prev_ts, "error": now_iso},
-        })
+        await ctx.state.set(
+            "queries",
+            query_id,
+            {
+                **qs,
+                "status": "error",
+                "error": msg,
+                "updatedAt": now_iso,
+                "status_timestamps": {**prev_ts, "error": now_iso},
+            },
+        )
 
 
 async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
-    query_id      = input_data.get("queryId")
-    user_query    = input_data.get("query", "")
-    parsed        = input_data.get("parsed", {})
-    generated_sql = input_data.get("generated_sql")
+    from services.execute_query_service import run_execute_query
+    from types import SimpleNamespace
 
-    if not generated_sql:
-        qs = await ctx.state.get("queries", query_id)
-        await _error(ctx, qs, query_id, "No SQL was generated.")
-        return
-
-    qt  = parsed.get("query_type", "top_n")
-    trs = parsed.get("time_ranges", [])
-
-    # ── Rewrite 1: EXTRACT(YEAR) → >= AND < ──────────────────────────────────
-    generated_sql, was_rewritten = _rewrite_extract_to_range(generated_sql)
-    if was_rewritten:
-        ctx.logger.info("Rewrote EXTRACT->range", {"queryId": query_id})
-    if _has_extract(generated_sql):
-        ctx.logger.warn("SQL still contains EXTRACT", {"queryId": query_id})
-
-    # ── Rewrite 2: BETWEEN → >= AND < (datetime columns only) ────────────────
-    generated_sql, between_rewritten = _rewrite_between_to_range(generated_sql)
-    if between_rewritten:
-        ctx.logger.info("Rewrote BETWEEN->range for datetime col", {"queryId": query_id})
-
-    # ── Rewrite 3: BIGINT epoch timestamp columns (NEW — generalised fix) ─────
-    # Detects any BIGINT column whose name looks like a date (e.g. order_datetime,
-    # created_at stored as ms/s integer) and rewrites CAST(col AS DATE) →
-    # CAST(epoch_ms(col) AS DATE), EXTRACT(X FROM col) → EXTRACT(X FROM epoch_ms(col)),
-    # etc.  Fully schema-agnostic — works for any dataset.
-    bigint_map = _build_bigint_datetime_map()
-    if bigint_map:
-        generated_sql, epoch_rewritten = _rewrite_bigint_epoch_cols(generated_sql, bigint_map)
-        if epoch_rewritten:
-            ctx.logger.info(
-                "Rewrote BIGINT epoch datetime columns",
-                {"queryId": query_id, "cols": list(bigint_map.keys())},
-            )
-
-    # ── Rewrite 4: Add missing GROUP BY for time-bucket SELECT expressions ────
-    if qt == "time_series" and not _HAS_GROUP_BY_RE.search(generated_sql):
-        repaired = _repair_add_missing_group_by(generated_sql, "")
-        if repaired:
-            ctx.logger.info("Auto-added missing GROUP BY for time_series", {"queryId": query_id})
-            generated_sql = repaired
-
-    ctx.logger.info("Executing SQL", {"queryId": query_id, "query_type": qt})
-
-    params = _build_params(generated_sql, parsed)
-    ctx.logger.info("SQL params", {"queryId": query_id, "params": str(params)})
-
-    # ── Validator layer ────────────────────────────────────────────────────────
-    ok, errors, warnings = validate_query(generated_sql, params)
-    if warnings:
-        ctx.logger.warn("SQL validation warnings", {"queryId": query_id, "warnings": warnings})
-    if not ok:
-        qs = await ctx.state.get("queries", query_id)
-        msg = "SQL validation failed: " + " | ".join(errors)
-        await _error(ctx, qs, query_id, msg)
-        return
-
-    try:
-        rows    = _run_sql(generated_sql, params)
-        results = _rows_to_dicts(rows, parsed)
-    except Exception as exc:
-        err_str = str(exc)
-        repaired_sql = _repair_add_missing_group_by(generated_sql, err_str)
-        if not repaired_sql:
-            repaired_sql = _repair_group_by_missing_name(generated_sql, err_str)
-        if not repaired_sql:
-            qs = await ctx.state.get("queries", query_id)
-            await _error(ctx, qs, query_id, f"SQL execution failed: {exc}")
-            return
-        try:
-            rows    = _run_sql(repaired_sql, params)
-            results = _rows_to_dicts(rows, parsed)
-            generated_sql = repaired_sql
-            ctx.logger.warn("Repaired GROUP BY and retried", {"queryId": query_id})
-        except Exception as exc2:
-            qs = await ctx.state.get("queries", query_id)
-            await _error(ctx, qs, query_id, f"SQL execution failed: {exc2}")
-            return
-
-    ranked_types = {
-        "top_n", "bottom_n", "threshold", "intersection",
-        "zero_filter", "growth_ranking", "comparison",
-    }
-    is_top_percent_share = bool(parsed.get("_top_percent_share"))
-    if qt in ranked_types and results and "name" not in results[0] and not is_top_percent_share:
-        qs = await ctx.state.get("queries", query_id)
-        await _error(ctx, qs, query_id,
-                     f"SQL returned scalar instead of rows for query_type={qt}.")
-        return
-
-    qs = await ctx.state.get("queries", query_id)
-    if qs:
-        now_iso = datetime.now(timezone.utc).isoformat()
-        prev_ts = qs.get("status_timestamps", {})
-        await ctx.state.set("queries", query_id, {
-            **qs,
-            "status":        "executed",
-            "results":       results,
-            "generated_sql": generated_sql,
-            "updatedAt":     now_iso,
-            "status_timestamps": {**prev_ts, "executed": now_iso},
-        })
-
-    period_labels = [_period_label(t["start"], t["end"]) for t in trs]
-    start_date    = trs[0]["start"] if trs else ""
-    end_date      = trs[-1]["end"]  if trs else ""
-
-    next_topic = "query::forecast" if qt == "forecast" else "query::detect.anomalies"
-
-    await ctx.enqueue({"topic": next_topic, "data": {
-        "queryId":       query_id,
-        "query":         user_query,
-        "parsed":        parsed,
-        "results":       results,
-        "period_labels": period_labels,
-        "startDate":     start_date,
-        "endDate":       end_date,
-    }})
+    step_module = sys.modules.get(__name__) or SimpleNamespace(**globals())
+    await run_execute_query(step_module, input_data, ctx)

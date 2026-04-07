@@ -1,13 +1,17 @@
-"""List All Queries — HTTP endpoint to show all processed queries.
+"""List All Queries — HTTP endpoint to show all processed queries."""
 
-A utility step to list all queries that have been processed through
-the workflow, showing their status and results.
-
-Trigger: HTTP GET /queries
-"""
-
+import os
+import sys
 from typing import Any
+
 from motia import ApiRequest, ApiResponse, FlowContext, http
+
+_STEPS_DIR = os.path.dirname(os.path.abspath(__file__))
+_MOTIA_DIR = os.path.dirname(_STEPS_DIR)
+_PROJECT_ROOT = os.path.dirname(_MOTIA_DIR)
+for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
 
 config = {
     "name": "ListQueries",
@@ -22,11 +26,7 @@ config = {
 
 async def handler(request: ApiRequest[Any], ctx: FlowContext[Any]) -> ApiResponse[Any]:
     _ = request
-    queries = await ctx.state.list("queries")
+    from step_services import list_queries_response
 
-    ctx.logger.info("📋 Listing all queries", {"count": len(queries)})
-
-    return ApiResponse(status=200, body={
-        "queries": queries,
-        "count": len(queries),
-    })
+    status, body = await list_queries_response(ctx)
+    return ApiResponse(status=status, body=body)
