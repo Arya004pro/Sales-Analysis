@@ -770,6 +770,237 @@ def _inject_revenue_bridge(formatted_text: str, lines: list[str]) -> str:
     return formatted_text + block
 
 
+def _safe_float(v: Any) -> float:
+    try:
+        return float(v)
+    except Exception:
+        return 0.0
+
+
+def _find_numeric_by_tokens(
+    row: dict[str, Any], tokens: tuple[str, ...]
+) -> tuple[str, float] | None:
+    for key, value in row.items():
+        k = str(key).lower()
+        if any(t in k for t in tokens):
+            f = _safe_float(value)
+            return str(key), f
+    return None
+
+
+def _extract_discount_leak(rows: list[dict[str, Any]]) -> tuple[float, int]:
+    leak = 0.0
+    hits = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        direct = _find_numeric_by_tokens(
+            row,
+            ("discount_amount", "discount_value", "discount", "coupon", "markdown"),
+        )
+        if direct and direct[1] > 0:
+            leak += direct[1]
+            hits += 1
+            continue
+
+        rate = _find_numeric_by_tokens(
+            row,
+            ("discount_rate", "discount_pct", "discount_percent"),
+        )
+        base = _find_numeric_by_tokens(
+            row,
+            ("revenue", "sales", "amount", "gross", "total", "value"),
+        )
+        if rate and base and base[1] > 0:
+            r = rate[1]
+            if 0 < r <= 1:
+                r *= 100.0
+            if r > 0:
+                leak += base[1] * (r / 100.0)
+                hits += 1
+
+    return max(0.0, leak), hits
+
+
+def _extract_return_leak(rows: list[dict[str, Any]]) -> tuple[float, int]:
+    leak = 0.0
+    hits = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        direct = _find_numeric_by_tokens(
+            row,
+            ("return_amount", "refund_amount", "returns", "refund", "chargeback"),
+        )
+        if direct and direct[1] > 0:
+            leak += direct[1]
+            hits += 1
+            continue
+
+        rate = _find_numeric_by_tokens(
+            row,
+            ("return_rate", "refund_rate", "cancel_rate", "return_pct", "refund_pct"),
+        )
+        base = _find_numeric_by_tokens(
+            row,
+            ("revenue", "sales", "amount", "gross", "total", "value"),
+        )
+        if rate and base and base[1] > 0:
+            r = rate[1]
+            if 0 < r <= 1:
+                r *= 100.0
+            if r > 0:
+                leak += base[1] * (r / 100.0)
+                hits += 1
+
+    return max(0.0, leak), hits
+
+
+def _extract_low_margin_mix_leak(
+    rows: list[dict[str, Any]], decomposition: dict[str, Any]
+) -> tuple[float, int, str]:
+    revenue_margin_pairs: list[tuple[float, float]] = []
+
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+
+        revenue = _find_numeric_by_tokens(
+            row,
+            ("revenue", "sales", "amount", "gross", "total", "value"),
+        )
+        if not revenue or revenue[1] <= 0:
+            continue
+
+        margin_pct = _find_numeric_by_tokens(
+            row,
+            ("margin_pct", "margin_percent", "margin_rate", "gm_pct", "profit_pct"),
+        )
+        if margin_pct:
+            m = margin_pct[1]
+            if 0 < m <= 1:
+                m *= 100.0
+            revenue_margin_pairs.append((revenue[1], m))
+            continue
+
+        margin_amt = _find_numeric_by_tokens(
+            row,
+            ("margin", "profit", "gross_profit", "contribution"),
+        )
+        if margin_amt:
+            m = (margin_amt[1] / revenue[1]) * 100.0 if revenue[1] > 0 else 0.0
+            revenue_margin_pairs.append((revenue[1], m))
+
+    if revenue_margin_pairs:
+        sorted_margins = sorted(m for _, m in revenue_margin_pairs)
+        idx = int(0.75 * (len(sorted_margins) - 1))
+        target_margin = max(0.0, sorted_margins[idx])
+        leak = 0.0
+        for rev, m in revenue_margin_pairs:
+            gap = max(0.0, target_margin - m)
+            leak += rev * (gap / 100.0)
+        return max(0.0, leak), len(revenue_margin_pairs), "margin_profile"
+
+    if isinstance(decomposition, dict) and decomposition.get("applies"):
+        bridge = decomposition.get("bridge") or {}
+        contraction = _safe_float(bridge.get("existing_entity_contraction"))
+        lost_drag = _safe_float(bridge.get("lost_entity_drag"))
+        proxy = max(0.0, contraction + lost_drag)
+        if proxy > 0:
+            return proxy, 1, "decomposition_proxy"
+
+    return 0.0, 0, "insufficient_fields"
+
+
+def _build_margin_leak_finder(
+    rows: list[dict[str, Any]],
+    decomposition: dict[str, Any],
+) -> dict[str, Any]:
+    discount_leak, discount_hits = _extract_discount_leak(rows)
+    return_leak, return_hits = _extract_return_leak(rows)
+    mix_leak, mix_hits, mix_source = _extract_low_margin_mix_leak(rows, decomposition)
+
+    total_leak = discount_leak + return_leak + mix_leak
+    signal_count = sum(
+        1
+        for v in (
+            discount_leak,
+            return_leak,
+            mix_leak,
+        )
+        if v > 0
+    )
+
+    confidence = "low"
+    if signal_count >= 2 and (discount_hits + return_hits + mix_hits) >= 3:
+        confidence = "high"
+    elif signal_count >= 1:
+        confidence = "medium"
+
+    return {
+        "applies": bool(signal_count > 0),
+        "total_leak": total_leak,
+        "components": {
+            "discount_leak": discount_leak,
+            "return_leak": return_leak,
+            "low_margin_mix_leak": mix_leak,
+        },
+        "evidence": {
+            "discount_hits": discount_hits,
+            "return_hits": return_hits,
+            "mix_hits": mix_hits,
+            "mix_source": mix_source,
+        },
+        "confidence": confidence,
+    }
+
+
+def _margin_leak_lines(finder: dict[str, Any], currency: str) -> list[str]:
+    if not isinstance(finder, dict):
+        return []
+
+    components = finder.get("components") or {}
+    discount_leak = _safe_float(components.get("discount_leak"))
+    return_leak = _safe_float(components.get("return_leak"))
+    mix_leak = _safe_float(components.get("low_margin_mix_leak"))
+    total_leak = _safe_float(finder.get("total_leak"))
+    confidence = str(finder.get("confidence") or "low").upper()
+
+    lines = ["Margin Leak Finder"]
+    if total_leak <= 0:
+        lines.append(
+            "- Leak estimate: no measurable leak signal from current result fields."
+        )
+        lines.append(
+            "- Tip: include discount/refund/profit columns to improve leak attribution precision."
+        )
+        return lines
+
+    lines.extend(
+        [
+            f"- Estimated leak value: {_fmt_indian(total_leak, currency)}",
+            f"- High discount leak: {_fmt_indian(discount_leak, currency)}",
+            f"- High return/refund leak: {_fmt_indian(return_leak, currency)}",
+            f"- Low-margin mix-shift leak: {_fmt_indian(mix_leak, currency)}",
+            f"- Confidence: {confidence}",
+        ]
+    )
+    return lines
+
+
+def _inject_margin_leak(formatted_text: str, lines: list[str]) -> str:
+    if not lines:
+        return formatted_text
+    block = "\n\n" + "\n".join(lines)
+    marker = "\n\n Token Usage "
+    if marker in formatted_text:
+        head, tail = formatted_text.split(marker, 1)
+        return head + block + marker + tail
+    return formatted_text + block
+
+
 def _compress_rows(rows: list[dict[str, Any]], limit: int = 12) -> list[dict[str, Any]]:
     if not rows:
         return []
@@ -1499,6 +1730,11 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     if bridge_lines:
         formatted_text = _inject_revenue_bridge(formatted_text, bridge_lines)
 
+    margin_leak_finder = _build_margin_leak_finder(results, revenue_decomposition)
+    margin_leak_block = _margin_leak_lines(margin_leak_finder, p)
+    if margin_leak_block:
+        formatted_text = _inject_margin_leak(formatted_text, margin_leak_block)
+
     anomaly_lines = _anomaly_insights(anomalies, p)
     if anomaly_lines:
         formatted_text = _inject_insight_block(formatted_text, anomaly_lines)
@@ -1519,6 +1755,7 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
                 "chart_config": chart_config,
                 "anomalies": anomalies,
                 "revenue_decomposition": revenue_decomposition,
+                "margin_leak_finder": margin_leak_finder,
                 "auto_insights": auto_insights,
                 "token_usage": token_usage,
                 "token_totals": token_totals,
