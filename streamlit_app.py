@@ -1127,6 +1127,289 @@ def fetch_chart_html(query_id):
         return f"<p style='color:#ef4444'>Could not load chart: {e}</p>"
 
 
+def _coerce_number(value):
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    s = str(value).strip()
+    if not s:
+        return None
+    neg = False
+    if s.startswith("(") and s.endswith(")"):
+        s = s[1:-1]
+        neg = True
+    s = s.replace("Rs", "").replace("$", "").replace(",", "").strip()
+    if s.endswith("%"):
+        s = s[:-1].strip()
+    s = re.sub(r"[^0-9.\-]", "", s)
+    if not s:
+        return None
+    try:
+        v = float(s)
+        return -v if neg else v
+    except Exception:
+        return None
+
+
+def _format_delta(delta: float | None, is_percent: bool = False) -> str | None:
+    if delta is None:
+        return None
+    if is_percent:
+        return f"{delta:+.2f}%"
+    if abs(delta) >= 1000:
+        return f"{delta:+,.0f}"
+    return f"{delta:+,.2f}"
+
+
+def _extract_kpi_value(state: dict) -> tuple[str, float | None, bool, str]:
+    """Return display value, numeric value, is_percent, and note."""
+    status = str(state.get("status") or "")
+    if status != "completed":
+        return "N/A", None, False, f"status={status or 'unknown'}"
+
+    items = state.get("formattedItems") or []
+    if isinstance(items, list) and items:
+        first = items[0] if isinstance(items[0], dict) else {}
+        if "value" in first:
+            display = str(first.get("value") or "N/A")
+            numeric = _coerce_number(first.get("raw_value"))
+            if numeric is None:
+                numeric = _coerce_number(display)
+            return display, numeric, ("%" in display), "formatted_items"
+
+    results = state.get("results") or []
+    if isinstance(results, list) and len(results) == 1 and isinstance(results[0], dict):
+        row = results[0]
+        if "value" in row and "name" not in row:
+            num = _coerce_number(row.get("value"))
+            if num is not None:
+                return f"{num:,.2f}", num, False, "scalar_result"
+
+    text = str(state.get("formattedText") or "")
+    nums = re.findall(r"[-+]?\d[\d,]*(?:\.\d+)?%?", text)
+    if nums:
+        display = nums[-1]
+        num = _coerce_number(display)
+        return display, num, ("%" in display), "formatted_text"
+
+    return "N/A", None, False, "no_numeric_signal"
+
+
+def _poll_query_terminal(query_id: str, timeout_seconds: float = 45.0) -> dict:
+    deadline = time.time() + timeout_seconds
+    latest = {}
+    while time.time() < deadline:
+        latest = fetch_state(query_id)
+        stt = str(latest.get("status") or "")
+        if stt in {"completed", "error", "needs_clarification"}:
+            return latest
+        time.sleep(POLL_INTERVAL)
+    return latest or {"status": "timeout", "error": "Polling timeout"}
+
+
+def _run_kpi_query(query_text: str) -> dict:
+    submit = submit_query(query_text, session_id=None)
+    qid = str(submit.get("queryId") or "")
+    if not qid:
+        return {"status": "error", "error": "No queryId returned"}
+    result_state = _poll_query_terminal(qid)
+    result_state["_kpi_query_id"] = qid
+    return result_state
+
+
+_KPI_DEFAULTS = {
+    "Revenue": "Total revenue in last 30 days",
+    "Orders": "Count orders in last 30 days",
+    "AOV": "Average order value in last 30 days",
+    "Refund Rate": "What is refund rate in last 30 days",
+    "Gross Profit": "Total gross profit in last 30 days",
+    "Margin %": "What is gross margin percentage in last 30 days",
+    "Repeat Customers": "Count repeat customers in last 30 days",
+    "Top Category Revenue": "Top category by revenue in last 30 days",
+}
+
+
+def render_kpi_tile_board() -> None:
+    st.markdown("## Multi-Metric Live KPI Tile Board")
+    st.caption(
+        "Define 4-6 KPIs, auto-refresh them on a timer, and keep Ask & Analyze on the main page."
+    )
+
+    if not api_ok():
+        st.error("Motia API not reachable - run `npm run dev` first")
+        st.stop()
+
+    state_defaults = {
+        "kpi_board_data": {},
+        "kpi_board_last_refresh": 0.0,
+        "kpi_board_prev_numeric": {},
+        "kpi_board_query_map": dict(_KPI_DEFAULTS),
+    }
+    for k, v in state_defaults.items():
+        if k not in st.session_state:
+            st.session_state[k] = v
+
+    options = list(_KPI_DEFAULTS.keys())
+    selected = st.multiselect(
+        "Select KPI tiles (4-6)",
+        options=options,
+        default=["Revenue", "Orders", "AOV", "Refund Rate"],
+        max_selections=6,
+        key="kpi_board_selected",
+    )
+
+    auto_col, now_col, ts_col = st.columns([2, 1, 2])
+    interval = auto_col.selectbox(
+        "Auto-refresh interval",
+        options=[0, 15, 30, 60, 120],
+        format_func=lambda x: "Off" if x == 0 else f"{x}s",
+        key="kpi_board_interval",
+    )
+    refresh_now = now_col.button(
+        "Refresh now", key="kpi_board_refresh_now", use_container_width=True
+    )
+    last_ts = float(st.session_state.get("kpi_board_last_refresh", 0.0) or 0.0)
+    if last_ts > 0:
+        ts_col.caption(
+            f"Last refresh: {datetime.fromtimestamp(last_ts).strftime('%H:%M:%S')}"
+        )
+    else:
+        ts_col.caption("Last refresh: not yet")
+
+    if len(selected) < 4:
+        st.warning("Please select at least 4 KPIs for the tile board.")
+    elif len(selected) > 6:
+        st.warning("Please keep at most 6 KPIs.")
+
+    with st.expander("KPI query definitions", expanded=True):
+        for label in selected:
+            q_key = f"kpi_q_{label}"
+            if q_key not in st.session_state:
+                st.session_state[q_key] = st.session_state["kpi_board_query_map"].get(
+                    label, _KPI_DEFAULTS.get(label, "")
+                )
+            st.session_state["kpi_board_query_map"][label] = st.text_input(
+                label,
+                value=st.session_state[q_key],
+                key=q_key,
+            ).strip()
+
+    signature = json.dumps(
+        {
+            "selected": selected,
+            "queries": {
+                k: st.session_state["kpi_board_query_map"].get(k, "") for k in selected
+            },
+        },
+        sort_keys=True,
+    )
+    prev_signature = st.session_state.get("kpi_board_signature", "")
+    changed = signature != prev_signature
+    st.session_state["kpi_board_signature"] = signature
+
+    due_by_timer = bool(
+        interval > 0 and last_ts > 0 and (time.time() - last_ts) >= interval
+    )
+    no_data_yet = not bool(st.session_state.get("kpi_board_data"))
+    should_refresh = bool(refresh_now or due_by_timer or changed or no_data_yet)
+
+    if len(selected) >= 4 and should_refresh:
+        new_data = {}
+        prev_numeric = st.session_state.get("kpi_board_prev_numeric", {}) or {}
+        progress = st.progress(0)
+        status = st.empty()
+        total = max(1, len(selected))
+
+        for idx, label in enumerate(selected, start=1):
+            q = (st.session_state["kpi_board_query_map"].get(label) or "").strip()
+            if not q:
+                new_data[label] = {
+                    "status": "error",
+                    "display": "N/A",
+                    "numeric": None,
+                    "is_percent": False,
+                    "delta": None,
+                    "note": "empty_query",
+                    "query": q,
+                    "query_id": None,
+                }
+            else:
+                status.info(f"Refreshing {label} ({idx}/{total})...")
+                try:
+                    state = _run_kpi_query(q)
+                    display, numeric, is_percent, note = _extract_kpi_value(state)
+                    prev_val = prev_numeric.get(label)
+                    delta = (
+                        (numeric - prev_val)
+                        if (numeric is not None and prev_val is not None)
+                        else None
+                    )
+                    new_data[label] = {
+                        "status": state.get("status", "unknown"),
+                        "display": display,
+                        "numeric": numeric,
+                        "is_percent": is_percent,
+                        "delta": delta,
+                        "note": note,
+                        "query": q,
+                        "query_id": state.get("_kpi_query_id"),
+                    }
+                except Exception as exc:
+                    new_data[label] = {
+                        "status": "error",
+                        "display": "N/A",
+                        "numeric": None,
+                        "is_percent": False,
+                        "delta": None,
+                        "note": str(exc),
+                        "query": q,
+                        "query_id": None,
+                    }
+
+            progress.progress(int((idx / total) * 100))
+
+        status.empty()
+        progress.empty()
+
+        st.session_state["kpi_board_data"] = new_data
+        st.session_state["kpi_board_prev_numeric"] = {
+            k: v.get("numeric")
+            for k, v in new_data.items()
+            if isinstance(v, dict) and v.get("numeric") is not None
+        }
+        st.session_state["kpi_board_last_refresh"] = time.time()
+
+    data = st.session_state.get("kpi_board_data", {}) or {}
+    if data:
+        rows = [selected[i : i + 3] for i in range(0, len(selected), 3)]
+        for row in rows:
+            cols = st.columns(len(row))
+            for col, label in zip(cols, row):
+                tile = data.get(label, {})
+                disp = tile.get("display", "N/A")
+                delta = _format_delta(tile.get("delta"), bool(tile.get("is_percent")))
+                with col:
+                    st.metric(label=label, value=disp, delta=delta)
+                    st.caption(f"Status: {tile.get('status', 'unknown')}")
+                    qid = tile.get("query_id")
+                    if qid:
+                        st.caption(f"Query ID: {qid}")
+    else:
+        st.caption("No KPI data yet. Configure KPIs and click Refresh now.")
+
+    if interval > 0 and len(selected) >= 4:
+        last = float(st.session_state.get("kpi_board_last_refresh", 0.0) or 0.0)
+        if last > 0:
+            elapsed = max(0, int(time.time() - last))
+            remaining = max(0, int(interval - elapsed))
+            st.caption(f"Auto-refresh is ON. Next refresh in ~{remaining}s.")
+        else:
+            st.caption("Auto-refresh is ON. First refresh will run now.")
+        time.sleep(1.0)
+        st.rerun()
+
+
 def _parse_iso(ts):
     if not ts:
         return None
@@ -1320,6 +1603,16 @@ def render_schema_section():
 
 
 #  Page layout
+
+page_mode = st.sidebar.radio(
+    "Navigation",
+    options=["Ask & Analyze", "Live KPI Tile Board"],
+    key="page_mode",
+)
+
+if page_mode == "Live KPI Tile Board":
+    render_kpi_tile_board()
+    st.stop()
 
 st.markdown("## Data Analytics - Live Pipeline")
 
