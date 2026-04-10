@@ -14,7 +14,6 @@ import sys
 import re
 import json
 import time
-import calendar
 from datetime import datetime, timezone
 from typing import Any
 
@@ -151,69 +150,6 @@ _FORECAST_KEYWORDS = {
     "going to be",
 }
 
-_GOAL_TRACK_END_MONTH_CUES = {
-    "end of month",
-    "month end",
-    "eom",
-    "by month end",
-    "this month",
-}
-
-_GOAL_TRACK_VERB_CUES = {
-    "on track",
-    "track",
-    "hit",
-    "reach",
-    "achieve",
-    "meet",
-}
-
-_GOAL_TRACK_TARGET_CUES = {
-    "target",
-    "goal",
-    "quota",
-}
-
-_GOAL_SET_CUES = {
-    "our",
-    "set",
-    "target is",
-    "goal is",
-    "quota is",
-    "this month target",
-    "this month's target",
-    "month target",
-}
-
-_GOAL_STATE_NS = "goal_targets"
-_GOAL_STATE_KEY = "current"
-
-_MONTH_NAME_TO_NUM = {
-    "jan": 1,
-    "january": 1,
-    "feb": 2,
-    "february": 2,
-    "mar": 3,
-    "march": 3,
-    "apr": 4,
-    "april": 4,
-    "may": 5,
-    "jun": 6,
-    "june": 6,
-    "jul": 7,
-    "july": 7,
-    "aug": 8,
-    "august": 8,
-    "sep": 9,
-    "sept": 9,
-    "september": 9,
-    "oct": 10,
-    "october": 10,
-    "nov": 11,
-    "november": 11,
-    "dec": 12,
-    "december": 12,
-}
 _ALL_TIME_YEARLY_HINTS = {
     "each year",
     "every year",
@@ -315,43 +251,6 @@ _AOV_QUERY_HINTS = (
     "average basket value",
     "average transaction value",
     "average ticket size",
-)
-
-_REPEAT_ENTITY_CUES = (
-    "repeat",
-    "repeated",
-    "returning",
-    "return",
-    "repeat purchase",
-    "repeat order",
-)
-
-_REPEAT_ENTITY_NOUNS = (
-    "buyer",
-    "customer",
-    "user",
-    "client",
-    "account",
-    "member",
-    "driver",
-    "rider",
-    "vendor",
-    "merchant",
-    "seller",
-    "partner",
-    "employee",
-    "agent",
-    "store",
-    "warehouse",
-    "branch",
-)
-
-_SHARE_CUES = (
-    "contribution",
-    "contribute",
-    "share",
-    "percent of",
-    "percentage of",
 )
 
 _MANDATORY_FILTER_COLS: dict[str, dict] = {
@@ -1169,244 +1068,6 @@ def _parse_scaled_number(num_text: str, suffix: str = "") -> float | None:
     return val * mult
 
 
-def _extract_goal_target_value(query: str) -> float | None:
-    q = (query or "").lower()
-    if not q:
-        return None
-
-    patterns = [
-        r"\b(?:target|goal|quota|hit|reach|achieve|meet)\s*(?:of|is|=|:|to)?\s*(?:rs\.?|inr|usd|\$)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(k|m|mn|b|bn|cr|crore|crores|l|lac|lakh|lakhs|million|billion)?\b",
-        r"\b([0-9][0-9,]*(?:\.[0-9]+)?)\s*(k|m|mn|b|bn|cr|crore|crores|l|lac|lakh|lakhs|million|billion)?\s*(?:target|goal|quota)\b",
-    ]
-    for pat in patterns:
-        m = re.search(pat, q)
-        if not m:
-            continue
-        parsed = _parse_scaled_number(m.group(1), m.group(2) or "")
-        if parsed is not None and parsed > 0:
-            return parsed
-    return None
-
-
-def _is_goal_tracking_query(query: str) -> bool:
-    q = (query or "").lower()
-    if not q:
-        return False
-
-    has_eom = any(c in q for c in _GOAL_TRACK_END_MONTH_CUES)
-    if not has_eom:
-        return False
-
-    has_target = any(c in q for c in _GOAL_TRACK_TARGET_CUES)
-    has_verb = any(c in q for c in _GOAL_TRACK_VERB_CUES)
-    has_on_track_phrase = ("on track" in q) or ("track to" in q)
-    has_numeric_hit = bool(
-        re.search(
-            r"\b(?:hit|reach|achieve|meet)\s+(?:rs\.?|inr|usd|\$)?\s*[0-9]",
-            q,
-        )
-    )
-    return (has_target and has_verb) or has_numeric_hit or has_on_track_phrase
-
-
-def _is_goal_set_query(query: str) -> bool:
-    q = (query or "").lower().strip()
-    if not q:
-        return False
-    if _is_goal_tracking_query(q):
-        return False
-
-    has_target_keyword = any(c in q for c in _GOAL_TRACK_TARGET_CUES)
-    has_numeric_target = _extract_goal_target_value(q) is not None
-    if not (has_target_keyword and has_numeric_target):
-        return False
-
-    if any(c in q for c in _GOAL_SET_CUES):
-        return True
-    # Default statement-like form when numeric target is provided without
-    # explicit tracking ask.
-    return "?" not in q
-
-
-def _infer_goal_period_from_query(query: str) -> tuple[str, str]:
-    today = datetime.now(timezone.utc).date()
-    default_key = f"{today.year:04d}-{today.month:02d}"
-    default_label = f"{calendar.month_abbr[today.month]} {today.year}"
-
-    q = (query or "").lower()
-    m = re.search(
-        r"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
-        r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
-        r"(?:\s+(\d{4}))?\b",
-        q,
-    )
-    if not m:
-        return default_key, default_label
-
-    mon_name = str(m.group(1) or "").lower()
-    mon_num = _MONTH_NAME_TO_NUM.get(mon_name)
-    if not mon_num:
-        return default_key, default_label
-    year = int(m.group(2)) if m.group(2) else today.year
-    return f"{year:04d}-{mon_num:02d}", f"{calendar.month_abbr[mon_num]} {year}"
-
-
-def _goal_store_key(metric: str, period_key: str) -> str:
-    return f"{(metric or '').strip().lower()}::{(period_key or '').strip()}"
-
-
-def _human_metric_label(metric: str) -> str:
-    m = (metric or "value").strip()
-    if not m:
-        return "value"
-    return m.replace("_", " ")
-
-
-async def _load_goal_store(ctx: FlowContext[Any]) -> dict[str, Any]:
-    store = await ctx.state.get(_GOAL_STATE_NS, _GOAL_STATE_KEY)
-    if isinstance(store, dict):
-        items = store.get("items")
-        if isinstance(items, dict):
-            return {"items": dict(items)}
-    return {"items": {}}
-
-
-async def _save_goal_target(
-    ctx: FlowContext[Any],
-    metric: str,
-    period_key: str,
-    period_label: str,
-    target_value: float,
-    query_id: str,
-) -> None:
-    if not metric or not period_key or target_value <= 0:
-        return
-    store = await _load_goal_store(ctx)
-    items = dict(store.get("items") or {})
-    now_iso = datetime.now(timezone.utc).isoformat()
-    k = _goal_store_key(metric, period_key)
-    items[k] = {
-        "metric": metric,
-        "period_key": period_key,
-        "period_label": period_label,
-        "target_value": float(target_value),
-        "updated_at": now_iso,
-        "source_query_id": query_id,
-    }
-    await ctx.state.set(
-        _GOAL_STATE_NS, _GOAL_STATE_KEY, {"items": items, "updated_at": now_iso}
-    )
-
-
-def _lookup_goal_target(
-    store: dict[str, Any],
-    metric: str,
-    period_key: str,
-) -> tuple[float | None, str | None]:
-    items = store.get("items") if isinstance(store, dict) else None
-    if not isinstance(items, dict):
-        return None, None
-
-    exact = items.get(_goal_store_key(metric, period_key))
-    if isinstance(exact, dict):
-        try:
-            val = float(exact.get("target_value"))
-            if val > 0:
-                return val, str(exact.get("period_label") or "")
-        except Exception:
-            pass
-
-    period_matches: list[dict[str, Any]] = []
-    for entry in items.values():
-        if not isinstance(entry, dict):
-            continue
-        if str(entry.get("period_key") or "") != str(period_key):
-            continue
-        try:
-            tv = float(entry.get("target_value"))
-            if tv > 0:
-                period_matches.append(entry)
-        except Exception:
-            continue
-
-    if len(period_matches) == 1:
-        only = period_matches[0]
-        return float(only.get("target_value")), str(only.get("period_label") or "")
-
-    if period_matches:
-        period_matches.sort(key=lambda e: str(e.get("updated_at") or ""), reverse=True)
-        best = period_matches[0]
-        return float(best.get("target_value")), str(best.get("period_label") or "")
-
-    return None, None
-
-
-def _month_to_date_range_utc() -> list[dict[str, str]]:
-    today = datetime.now(timezone.utc).date()
-    start = today.replace(day=1)
-    label = f"Month to date ({today.strftime('%b %Y')})"
-    return [{"start": start.isoformat(), "end": today.isoformat(), "label": label}]
-
-
-def _looks_like_iso_date(value: str) -> bool:
-    s = (value or "").strip()
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", s):
-        return False
-    try:
-        datetime.fromisoformat(s)
-        return True
-    except Exception:
-        return False
-
-
-def _time_ranges_are_valid(periods: Any) -> bool:
-    if not isinstance(periods, list) or not periods:
-        return False
-    for p in periods:
-        if not isinstance(p, dict):
-            return False
-        if not _looks_like_iso_date(str(p.get("start") or "")):
-            return False
-        if not _looks_like_iso_date(str(p.get("end") or "")):
-            return False
-    return True
-
-
-def _goal_time_range_for_period_key(period_key: str) -> list[dict[str, str]]:
-    key = (period_key or "").strip()
-    m = re.match(r"^(\d{4})-(\d{2})$", key)
-    if not m:
-        return _month_to_date_range_utc()
-
-    year = int(m.group(1))
-    month = int(m.group(2))
-    month = max(1, min(12, month))
-
-    start = datetime(year, month, 1, tzinfo=timezone.utc).date()
-    today = datetime.now(timezone.utc).date()
-    last_day = calendar.monthrange(year, month)[1]
-    month_end = datetime(year, month, last_day, tzinfo=timezone.utc).date()
-
-    # If this is the current month, use month-to-date. If it's a past month,
-    # use the full month. If it's a future month, use start=start (no elapsed period yet).
-    if year == today.year and month == today.month:
-        end = today
-    elif (year, month) < (today.year, today.month):
-        end = month_end
-    else:
-        end = start
-
-    label = f"{calendar.month_abbr[month]} {year}"
-    return [{"start": start.isoformat(), "end": end.isoformat(), "label": label}]
-
-
-def _remaining_days_in_month_utc() -> int:
-    today = datetime.now(timezone.utc).date()
-    last_day = calendar.monthrange(today.year, today.month)[1]
-    end = today.replace(day=last_day)
-    return max((end - today).days, 0)
-
-
 def _infer_rank_within_time_bucket(query: str) -> str | None:
     q = (query or "").lower()
     if not _has_ranking_cue(query):
@@ -1550,36 +1211,6 @@ def _merge_followup_intent(
     merged["_followup_applied"] = True
     merged["_followup_from_query_id"] = (followup_context or {}).get("previousQueryId")
     return merged
-
-
-def _is_repeat_entity_count_intent(query: str) -> bool:
-    q = f" {(query or '').lower()} "
-    has_repeat = any(c in q for c in _REPEAT_ENTITY_CUES)
-    has_entity = any(n in q for n in _REPEAT_ENTITY_NOUNS)
-    if not (has_repeat and has_entity):
-        return False
-    if _has_ranking_cue(query):
-        return False
-    if _is_trend_query(query):
-        return False
-    return True
-
-
-def _extract_top_percent_share_value(query: str) -> float | None:
-    q = (query or "").lower()
-    if not any(c in q for c in _SHARE_CUES):
-        return None
-
-    m = re.search(r"\btop\s+(\d+(?:\.\d+)?)\s*(?:%|percent\b)", q)
-    if not m:
-        return None
-    try:
-        pct = float(m.group(1))
-    except Exception:
-        return None
-    if pct <= 0 or pct >= 100:
-        return None
-    return pct
 
 
 def _infer_entity_from_grouping_cue(
@@ -1741,7 +1372,6 @@ def _post_process(
     growth_cues = ("growth", "grew", "increase", "decrease", "delta", "change")
     split_cue = any(x in ql for x in (" vs ", " versus ", " compared to ", " against "))
     grouping_cue = bool(re.search(r"\b(per|by|for each|each)\b", ql))
-    goal_period_key, goal_period_label = _infer_goal_period_from_query(user_query)
 
     schema_maps: tuple[list[tuple[str, str]], list[tuple[str, str]] | None] = None  # type: ignore[assignment]
 
@@ -1770,35 +1400,6 @@ def _post_process(
 
     ranking_cue = _has_ranking_cue(user_query)
     rank_within_time_bucket = _infer_rank_within_time_bucket(user_query)
-    top_percent_share = _extract_top_percent_share_value(user_query)
-
-    if _is_repeat_entity_count_intent(user_query):
-        parsed["query_type"] = "aggregate"
-        parsed["metric"] = "count"
-        parsed["semantic_metric"] = "repeat_entity_count"
-        parsed["entity"] = None
-        parsed["_repeat_entity_count"] = True
-        qt = "aggregate"
-        m = "count"
-
-    if top_percent_share is not None:
-        parsed["_top_percent_share"] = top_percent_share
-        parsed.setdefault("semantic_metric", "top_percent_share")
-        # Keep ranking-style type so entity inference/completeness stays dimension-aware.
-        parsed["query_type"] = "top_n"
-        qt = "top_n"
-
-        if not parsed.get("entity"):
-            entity_map_for_grouping, _ = _get_schema_maps()
-            inferred_entity = _infer_entity_from_grouping_cue(
-                user_query, entity_map_for_grouping
-            )
-            if not inferred_entity:
-                inferred_entity = _infer_entity_from_query_terms(
-                    user_query, entity_map_for_grouping
-                )
-            if inferred_entity:
-                parsed["entity"] = inferred_entity
 
     # For plain period-vs-period comparisons without explicit grouping language,
     # keep comparison aggregate (entity=None) even if an entity-like token appears.
@@ -1940,70 +1541,6 @@ def _post_process(
         if not parsed.get("forecast_method"):
             parsed["forecast_method"] = "auto"
         qt = "forecast"
-
-    if _is_goal_tracking_query(user_query) and not ranking_cue:
-        target_value = _extract_goal_target_value(user_query)
-        remaining_days = _remaining_days_in_month_utc()
-        parsed["query_type"] = "forecast"
-        parsed["entity"] = None
-        parsed["time_bucket"] = "day"
-        parsed["forecast_periods"] = remaining_days
-        if not parsed.get("forecast_method"):
-            parsed["forecast_method"] = "auto"
-        parsed["_goal_tracking"] = {
-            "mode": "end_of_month",
-            "horizon_label": "end of month",
-            "target_value": target_value,
-            "remaining_periods": remaining_days,
-            "period_key": goal_period_key,
-            "period_label": goal_period_label,
-        }
-        parsed["time_ranges"] = _goal_time_range_for_period_key(goal_period_key)
-        tr = parsed["time_ranges"]
-        if target_value is None:
-            parsed["is_complete"] = False
-            parsed["_force_clarification"] = True
-            parsed["clarification_question"] = (
-                "What target value should I track by end of month?"
-            )
-        qt = "forecast"
-
-    if _is_goal_set_query(user_query) and not ranking_cue:
-        target_value = _extract_goal_target_value(user_query)
-        metric_value = str(parsed.get("metric") or "").strip().lower()
-        if not metric_value and _is_revenue_intent(user_query):
-            _, mm = _get_schema_maps()
-            preferred_revenue = _select_primary_revenue_column(mm)
-            if preferred_revenue:
-                metric_value = preferred_revenue
-                parsed["metric"] = preferred_revenue
-                parsed["semantic_metric"] = "revenue"
-
-        parsed["query_type"] = "aggregate"
-        parsed["entity"] = None
-        parsed["_goal_set_only"] = {
-            "mode": "end_of_month",
-            "horizon_label": "end of month",
-            "target_value": target_value,
-            "period_key": goal_period_key,
-            "period_label": goal_period_label,
-            "metric": metric_value,
-        }
-
-        if not metric_value:
-            parsed["is_complete"] = False
-            parsed["_force_clarification"] = True
-            parsed["clarification_question"] = (
-                "Which metric should I set this target for?"
-            )
-        elif not target_value:
-            parsed["is_complete"] = False
-            parsed["_force_clarification"] = True
-            parsed["clarification_question"] = "What target value should I set?"
-        else:
-            parsed["is_complete"] = True
-            parsed["clarification_question"] = None
-        return parsed
 
     if (
         _is_trend_query(user_query)
@@ -2313,25 +1850,6 @@ def _check_clarity(parsed: dict) -> tuple[bool, str | None]:
     m = parsed.get("metric")
     ent = parsed.get("entity")
     cq = parsed.get("clarification_question")
-
-    goal_cfg = (
-        parsed.get("_goal_tracking")
-        if isinstance(parsed.get("_goal_tracking"), dict)
-        else None
-    )
-    if goal_cfg:
-        try:
-            target_val = float(goal_cfg.get("target_value"))
-        except Exception:
-            target_val = 0.0
-        if target_val <= 0:
-            return False, (cq or "What target value should I track by end of month?")
-        if not m:
-            return False, (cq or "Which metric should I track against the target?")
-        if not tr:
-            return False, (
-                cq or "Which time period should I use for this goal tracking request?"
-            )
 
     if parsed.get("_force_clarification") and cq:
         return False, str(cq)

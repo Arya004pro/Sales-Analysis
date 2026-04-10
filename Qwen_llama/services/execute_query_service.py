@@ -103,13 +103,7 @@ async def run_execute_query(
         "growth_ranking",
         "comparison",
     }
-    is_top_percent_share = bool(parsed.get("_top_percent_share"))
-    if (
-        qt in ranked_types
-        and results
-        and "name" not in results[0]
-        and not is_top_percent_share
-    ):
+    if qt in ranked_types and results and "name" not in results[0]:
         qs = await ctx.state.get("queries", query_id)
         await step._error(
             ctx,

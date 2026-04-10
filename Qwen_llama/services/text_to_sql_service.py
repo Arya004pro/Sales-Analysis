@@ -46,34 +46,9 @@ async def run_text_to_sql(
     usage = {}
     fallback_used = False
     sql_source = "builder"
-    is_repeat_entity_count = step._is_repeat_entity_count_intent(parsed, user_query)
-    is_top_percent_share = step._top_percent_share_value(parsed, user_query) is not None
-
-    if generated_sql is None and is_repeat_entity_count:
-        fb = step._deterministic_repeat_entity_count_fallback(parsed, user_query)
-        if fb:
-            generated_sql = fb
-            fallback_used = True
-            sql_source = "deterministic_repeat_entity_count_fallback"
-            ctx.logger.info(
-                "✅ Deterministic repeat-entity SQL built", {"queryId": query_id}
-            )
-
-    if generated_sql is None and is_top_percent_share:
-        fb = step._deterministic_top_percent_share_fallback(parsed, user_query)
-        if fb:
-            generated_sql = fb
-            fallback_used = True
-            sql_source = "deterministic_top_percent_share_fallback"
-            ctx.logger.info(
-                "✅ Deterministic top-percent-share SQL built", {"queryId": query_id}
-            )
 
     use_builder = (
-        qt in ("top_n", "bottom_n", "aggregate", "zero_filter")
-        and not rank_within_time
-        and not is_repeat_entity_count
-        and not is_top_percent_share
+        qt in ("top_n", "bottom_n", "aggregate", "zero_filter") and not rank_within_time
     )
 
     if use_builder:
