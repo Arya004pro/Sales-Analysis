@@ -19,8 +19,8 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
-_STEPS_DIR    = os.path.dirname(os.path.abspath(__file__))
-_MOTIA_DIR    = os.path.dirname(_STEPS_DIR)
+_STEPS_DIR = os.path.dirname(os.path.abspath(__file__))
+_MOTIA_DIR = os.path.dirname(_STEPS_DIR)
 _PROJECT_ROOT = os.path.dirname(_MOTIA_DIR)
 for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
     if _p not in sys.path:
@@ -28,6 +28,7 @@ for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
 
 from motia import FlowContext, queue
 from utils.forecaster import forecast_auto, forecast, ForecastResult
+from utils.mlflow_tracker import log_forecast_run
 
 config = {
     "name": "ForecastProjection",
@@ -43,12 +44,25 @@ config = {
 # ── Label generation for future buckets ──────────────────────────────────────
 
 _MONTH_ABBR = [
-    "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+    "",
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
 ]
 
 
-def _next_bucket_labels_from_now(bucket: str, n: int, now: datetime | None = None) -> list[str]:
+def _next_bucket_labels_from_now(
+    bucket: str, n: int, now: datetime | None = None
+) -> list[str]:
     """Generate N future labels starting from the next bucket after current time."""
     if n <= 0:
         return []
@@ -181,8 +195,18 @@ def _next_bucket_labels(last_label: str, bucket: str, n: int) -> list[str]:
         elif m_hum:
             month_name = m_hum.group(1).lower()[:3]
             month_map = {
-                "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-                "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+                "jan": 1,
+                "feb": 2,
+                "mar": 3,
+                "apr": 4,
+                "may": 5,
+                "jun": 6,
+                "jul": 7,
+                "aug": 8,
+                "sep": 9,
+                "oct": 10,
+                "nov": 11,
+                "dec": 12,
             }
             if month_name not in month_map:
                 year, month = -1, -1
@@ -270,26 +294,27 @@ def _human_labels(raw_labels: list[str], bucket: str) -> list[str]:
 
 # ── Chart config builder for forecast ────────────────────────────────────────
 
+
 def _build_forecast_chart(
-    hist_labels:    list[str],
-    hist_values:    list[float],
-    fc_labels:      list[str],
-    fc_values:      list[float],
-    fc_lower:       list[float],
-    fc_upper:       list[float],
-    metric:         str,
-    currency:       str,
-    title:          str,
-    period_str:     str,
-    method:         str,
+    hist_labels: list[str],
+    hist_values: list[float],
+    fc_labels: list[str],
+    fc_values: list[float],
+    fc_lower: list[float],
+    fc_upper: list[float],
+    metric: str,
+    currency: str,
+    title: str,
+    period_str: str,
+    method: str,
     confidence_pct: float,
 ) -> dict:
     all_labels = hist_labels + fc_labels
     # Pad historical with nulls so it stops at the boundary
     hist_data = hist_values + [None] * len(fc_labels)
     # Pad forecast with null so it starts from last historical point
-    fc_start  = [hist_values[-1]] + fc_values  # connect the lines
-    fc_data   = [None] * (len(hist_labels) - 1) + fc_start
+    fc_start = [hist_values[-1]] + fc_values  # connect the lines
+    fc_data = [None] * (len(hist_labels) - 1) + fc_start
 
     # Confidence band data (only over forecast horizon)
     n_hist = len(hist_labels)
@@ -330,100 +355,100 @@ def _build_forecast_chart(
                 # Historical
                 {
                     "label": "Historical",
-                    "data":  hist_data,
-                    "borderColor":          "rgba(99,179,237,1)",
-                    "backgroundColor":      "rgba(99,179,237,0.10)",
+                    "data": hist_data,
+                    "borderColor": "rgba(99,179,237,1)",
+                    "backgroundColor": "rgba(99,179,237,0.10)",
                     "pointBackgroundColor": "rgba(99,179,237,1)",
-                    "pointBorderColor":     "#1a1d27",
-                    "pointRadius":          4,
-                    "pointHoverRadius":     6,
-                    "borderWidth":          2,
-                    "fill":                 False,
-                    "tension":              0.35,
-                    "spanGaps":             False,
+                    "pointBorderColor": "#1a1d27",
+                    "pointRadius": 4,
+                    "pointHoverRadius": 6,
+                    "borderWidth": 2,
+                    "fill": False,
+                    "tension": 0.35,
+                    "spanGaps": False,
                 },
                 # Forecast line
                 {
                     "label": f"Forecast ({method.capitalize()}, {int(confidence_pct)}% CI)",
-                    "data":  fc_data,
-                    "borderColor":          "rgba(246,173,85,1)",
-                    "backgroundColor":      "rgba(246,173,85,0.0)",
+                    "data": fc_data,
+                    "borderColor": "rgba(246,173,85,1)",
+                    "backgroundColor": "rgba(246,173,85,0.0)",
                     "pointBackgroundColor": "rgba(246,173,85,1)",
-                    "pointBorderColor":     "#1a1d27",
-                    "pointRadius":          4,
-                    "pointHoverRadius":     6,
-                    "borderWidth":          2,
-                    "borderDash":           [6, 4],
-                    "fill":                 False,
-                    "tension":              0.3,
-                    "spanGaps":             True,
+                    "pointBorderColor": "#1a1d27",
+                    "pointRadius": 4,
+                    "pointHoverRadius": 6,
+                    "borderWidth": 2,
+                    "borderDash": [6, 4],
+                    "fill": False,
+                    "tension": 0.3,
+                    "spanGaps": True,
                 },
                 # Upper CI band
                 {
                     "label": f"Upper {int(confidence_pct)}% CI",
-                    "data":  upper_data,
-                    "borderColor":     "rgba(246,173,85,0.25)",
+                    "data": upper_data,
+                    "borderColor": "rgba(246,173,85,0.25)",
                     "backgroundColor": "rgba(246,173,85,0.12)",
-                    "pointRadius":     0,
-                    "borderWidth":     1,
-                    "borderDash":      [3, 3],
-                    "fill":            "+1",
-                    "tension":         0.3,
-                    "spanGaps":        True,
+                    "pointRadius": 0,
+                    "borderWidth": 1,
+                    "borderDash": [3, 3],
+                    "fill": "+1",
+                    "tension": 0.3,
+                    "spanGaps": True,
                 },
                 # Lower CI band
                 {
                     "label": f"Lower {int(confidence_pct)}% CI",
-                    "data":  lower_data,
-                    "borderColor":     "rgba(246,173,85,0.25)",
+                    "data": lower_data,
+                    "borderColor": "rgba(246,173,85,0.25)",
                     "backgroundColor": "rgba(246,173,85,0.12)",
-                    "pointRadius":     0,
-                    "borderWidth":     1,
-                    "borderDash":      [3, 3],
-                    "fill":            False,
-                    "tension":         0.3,
-                    "spanGaps":        True,
+                    "pointRadius": 0,
+                    "borderWidth": 1,
+                    "borderDash": [3, 3],
+                    "fill": False,
+                    "tension": 0.3,
+                    "spanGaps": True,
                 },
             ],
         },
         "options": {
-            "responsive":          True,
+            "responsive": True,
             "maintainAspectRatio": True,
             "interaction": {"mode": "index", "intersect": False},
             "plugins": {
                 "legend": {
                     "display": True,
                     "labels": {
-                        "color":    "#94a3b8",
-                        "font":     {"size": 11},
-                        "filter":   "function(item){return !item.text.includes('CI')||item.text.includes('Forecast');}",
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
+                        "filter": "function(item){return !item.text.includes('CI')||item.text.includes('Forecast');}",
                     },
                 },
                 "tooltip": {
-                    "enabled":         True,
+                    "enabled": True,
                     "backgroundColor": "#1e2130",
-                    "titleColor":      "#e2e8f0",
-                    "bodyColor":       "#94a3b8",
-                    "borderColor":     "#2d3148",
-                    "borderWidth":     1,
-                    "callbacks":       {"label": tip_fn},
-                    "filter":          "function(item){return item.raw!==null&&item.raw!==undefined;}",
+                    "titleColor": "#e2e8f0",
+                    "bodyColor": "#94a3b8",
+                    "borderColor": "#2d3148",
+                    "borderWidth": 1,
+                    "callbacks": {"label": tip_fn},
+                    "filter": "function(item){return item.raw!==null&&item.raw!==undefined;}",
                 },
                 "annotation": {
                     "annotations": {
                         "forecastStart": {
-                            "type":      "line",
-                            "xMin":      len(hist_labels) - 1,
-                            "xMax":      len(hist_labels) - 1,
+                            "type": "line",
+                            "xMin": len(hist_labels) - 1,
+                            "xMax": len(hist_labels) - 1,
                             "borderColor": "rgba(255,255,255,0.25)",
                             "borderWidth": 1,
-                            "borderDash":  [4, 4],
+                            "borderDash": [4, 4],
                             "label": {
-                                "display":   True,
-                                "content":   "Forecast →",
-                                "color":     "rgba(246,173,85,0.8)",
-                                "font":      {"size": 10},
-                                "position":  "start",
+                                "display": True,
+                                "content": "Forecast →",
+                                "color": "rgba(246,173,85,0.8)",
+                                "font": {"size": 10},
+                                "position": "start",
                             },
                         }
                     }
@@ -431,44 +456,70 @@ def _build_forecast_chart(
             },
             "scales": {
                 "x": {
-                    "title": {"display": True, "text": "Period",
-                              "color": "#94a3b8", "font": {"size": 11}},
+                    "title": {
+                        "display": True,
+                        "text": "Period",
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
+                    },
                     "ticks": {
-                        "color":       "#94a3b8",
-                        "font":        {"size": 10},
+                        "color": "#94a3b8",
+                        "font": {"size": 10},
                         "maxRotation": max_rotation,
                         "minRotation": max_rotation,
                     },
                     "grid": {"color": "rgba(255,255,255,0.05)"},
                 },
                 "y": {
-                    "title": {"display": True,
-                              "text": metric.replace("_", " ").title() + (f" ({currency})" if currency else ""),
-                              "color": "#94a3b8", "font": {"size": 11}},
-                    "ticks":       {"color": "#94a3b8", "font": {"size": 11},
-                                    "callback": tick_fn()},
-                    "grid":        {"color": "rgba(255,255,255,0.05)"},
+                    "title": {
+                        "display": True,
+                        "text": metric.replace("_", " ").title()
+                        + (f" ({currency})" if currency else ""),
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
+                    },
+                    "ticks": {
+                        "color": "#94a3b8",
+                        "font": {"size": 11},
+                        "callback": tick_fn(),
+                    },
+                    "grid": {"color": "rgba(255,255,255,0.05)"},
                     "beginAtZero": False,
                 },
             },
         },
     }
     return {
-        "title":    title,
+        "title": title,
         "subtitle": f"{period_str} — {method.capitalize()} forecast, {int(confidence_pct)}% confidence",
-        "prefix":   currency,
-        "config":   cfg,
+        "prefix": currency,
+        "config": cfg,
         "is_forecast": True,
     }
 
 
 # ── Currency inference (mirrors format_result_step) ───────────────────────────
 
+
 def _infer_currency(metric: str) -> str:
     m = (metric or "").lower()
-    if any(x in m for x in ["fare", "earnings", "commission", "revenue",
-                              "amount", "price", "total", "salary", "sales", "profit",
-                              "final", "net"]):
+    if any(
+        x in m
+        for x in [
+            "fare",
+            "earnings",
+            "commission",
+            "revenue",
+            "amount",
+            "price",
+            "total",
+            "salary",
+            "sales",
+            "profit",
+            "final",
+            "net",
+        ]
+    ):
         return ""
     if any(x in m for x in ["count", "quantity", "units", "distance", "duration"]):
         return ""
@@ -477,38 +528,50 @@ def _infer_currency(metric: str) -> str:
 
 # ── Main handler ──────────────────────────────────────────────────────────────
 
-async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
-    query_id      = input_data.get("queryId")
-    user_query    = input_data.get("query", "")
-    parsed        = input_data.get("parsed", {})
-    results       = input_data.get("results", []) or []
-    period_labels = input_data.get("period_labels", [])
-    start_date    = input_data.get("startDate", "")
-    end_date      = input_data.get("endDate", "")
 
-    metric      = parsed.get("metric", "value")
+async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
+    query_id = input_data.get("queryId")
+    user_query = input_data.get("query", "")
+    parsed = input_data.get("parsed", {})
+    results = input_data.get("results", []) or []
+    period_labels = input_data.get("period_labels", [])
+    start_date = input_data.get("startDate", "")
+    end_date = input_data.get("endDate", "")
+
+    metric = parsed.get("metric", "value")
     metric_disp = parsed.get("semantic_metric") or metric
-    bucket      = parsed.get("time_bucket", "month")
-    method      = parsed.get("forecast_method", "auto")
-    periods     = int(parsed.get("forecast_periods") or 3)
-    conf_pct    = float(parsed.get("forecast_confidence", 80.0))
-    goal_cfg    = parsed.get("_goal_tracking") if isinstance(parsed.get("_goal_tracking"), dict) else {}
+    bucket = parsed.get("time_bucket", "month")
+    method = parsed.get("forecast_method", "auto")
+    periods = int(parsed.get("forecast_periods") or 3)
+    conf_pct = float(parsed.get("forecast_confidence", 80.0))
+    goal_cfg = (
+        parsed.get("_goal_tracking")
+        if isinstance(parsed.get("_goal_tracking"), dict)
+        else {}
+    )
     try:
         goal_target = float(goal_cfg.get("target_value")) if goal_cfg else None
     except Exception:
         goal_target = None
 
-    ctx.logger.info("🔮 Forecasting", {
-        "queryId": query_id, "method": method,
-        "periods": periods, "rows": len(results),
-    })
+    ctx.logger.info(
+        "🔮 Forecasting",
+        {
+            "queryId": query_id,
+            "method": method,
+            "periods": periods,
+            "rows": len(results),
+        },
+    )
 
     # ── Extract historical data ───────────────────────────────────────────────
-    raw_labels  = [str(r.get("name", "?")) for r in results]
+    raw_labels = [str(r.get("name", "?")) for r in results]
     hist_values = [float(r.get("value", 0) or 0) for r in results]
 
     if len(hist_values) < 2:
-        ctx.logger.warn("⚠️ Insufficient data for forecast (<2 points)", {"queryId": query_id})
+        ctx.logger.warn(
+            "⚠️ Insufficient data for forecast (<2 points)", {"queryId": query_id}
+        )
         goal_result = None
         if goal_cfg and goal_target and hist_values:
             actual_to_date = float(sum(hist_values))
@@ -535,10 +598,16 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             pass_through_parsed = {**parsed, "_goal_tracking_result": goal_result}
 
         # Pass through to anomaly detection unchanged
-        await ctx.enqueue({
-            "topic": "query::detect.anomalies",
-            "data":  {**input_data, "parsed": pass_through_parsed, "forecast_skipped": True},
-        })
+        await ctx.enqueue(
+            {
+                "topic": "query::detect.anomalies",
+                "data": {
+                    **input_data,
+                    "parsed": pass_through_parsed,
+                    "forecast_skipped": True,
+                },
+            }
+        )
         return
 
     # Human-readable historical labels
@@ -573,19 +642,26 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
                 bucket=bucket,
             )
     except Exception as exc:
-        ctx.logger.error("Forecast algorithm failed", {"queryId": query_id, "error": str(exc)})
-        await ctx.enqueue({
-            "topic": "query::detect.anomalies",
-            "data":  {**input_data, "forecast_skipped": True},
-        })
+        ctx.logger.error(
+            "Forecast algorithm failed", {"queryId": query_id, "error": str(exc)}
+        )
+        await ctx.enqueue(
+            {
+                "topic": "query::detect.anomalies",
+                "data": {**input_data, "forecast_skipped": True},
+            }
+        )
         return
 
-    ctx.logger.info("✅ Forecast complete", {
-        "queryId":   query_id,
-        "method":    result.method,
-        "rmse":      result.rmse,
-        "trend_pct": result.trend_pct,
-    })
+    ctx.logger.info(
+        "✅ Forecast complete",
+        {
+            "queryId": query_id,
+            "method": result.method,
+            "rmse": result.rmse,
+            "trend_pct": result.trend_pct,
+        },
+    )
 
     goal_result = None
     if goal_cfg and goal_target and goal_target > 0:
@@ -596,15 +672,18 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
         remaining_periods = int(goal_cfg.get("remaining_periods") or periods or 0)
         required_per_period = (
             max(float(goal_target) - actual_to_date, 0.0) / remaining_periods
-            if remaining_periods > 0 else 0.0
+            if remaining_periods > 0
+            else 0.0
         )
         forecast_avg_per_period = (
             projected_remaining / max(len(result.forecast or []), 1)
-            if result.forecast else 0.0
+            if result.forecast
+            else 0.0
         )
         pace_ratio = (
             (forecast_avg_per_period / required_per_period)
-            if required_per_period > 0 else (1.0 if gap >= 0 else 0.0)
+            if required_per_period > 0
+            else (1.0 if gap >= 0 else 0.0)
         )
         goal_result = {
             "mode": str(goal_cfg.get("mode") or "end_of_month"),
@@ -622,55 +701,82 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             "status": "ok",
         }
 
+    mlflow_tracking = log_forecast_run(
+        query_id=query_id or "",
+        user_query=user_query,
+        parsed=parsed,
+        method=result.method,
+        periods=periods,
+        confidence_pct=conf_pct,
+        hist_values=hist_values,
+        forecast_values=[float(v) for v in (result.forecast or [])],
+        rmse=float(result.rmse or 0.0),
+        trend_pct=float(result.trend_pct or 0.0),
+        goal_result=goal_result,
+    )
+    if mlflow_tracking.get("logged"):
+        ctx.logger.info(
+            "MLflow forecast tracking logged",
+            {
+                "queryId": query_id,
+                "experiment": mlflow_tracking.get("experiment"),
+            },
+        )
+
     # ── Build combined results (historical + forecast rows) ───────────────────
     forecast_rows = []
     for i, (lbl, val, lo, hi) in enumerate(
         zip(fc_labels, result.forecast, result.lower_bound, result.upper_bound)
     ):
-        forecast_rows.append({
-            "name":       lbl,
-            "value":      round(val, 2),
-            "lower":      round(lo, 2),
-            "upper":      round(hi, 2),
-            "is_forecast": True,
-        })
+        forecast_rows.append(
+            {
+                "name": lbl,
+                "value": round(val, 2),
+                "lower": round(lo, 2),
+                "upper": round(hi, 2),
+                "is_forecast": True,
+            }
+        )
 
     # ── Build chart ───────────────────────────────────────────────────────────
-    currency  = _infer_currency(metric_disp)
-    period_str = f"{start_date} to {end_date}" if start_date and end_date else "selected period"
-    chart_title = f"Forecast: {user_query or metric_disp.replace('_',' ').title()}"
+    currency = _infer_currency(metric_disp)
+    period_str = (
+        f"{start_date} to {end_date}" if start_date and end_date else "selected period"
+    )
+    chart_title = f"Forecast: {user_query or metric_disp.replace('_', ' ').title()}"
 
     chart_config = _build_forecast_chart(
-        hist_labels   = hist_labels,
-        hist_values   = hist_values,
-        fc_labels     = fc_labels,
-        fc_values     = [round(v, 2) for v in result.forecast],
-        fc_lower      = [round(v, 2) for v in result.lower_bound],
-        fc_upper      = [round(v, 2) for v in result.upper_bound],
-        metric        = metric_disp,
-        currency      = currency,
-        title         = chart_title,
-        period_str    = period_str,
-        method        = result.method,
-        confidence_pct= conf_pct,
+        hist_labels=hist_labels,
+        hist_values=hist_values,
+        fc_labels=fc_labels,
+        fc_values=[round(v, 2) for v in result.forecast],
+        fc_lower=[round(v, 2) for v in result.lower_bound],
+        fc_upper=[round(v, 2) for v in result.upper_bound],
+        metric=metric_disp,
+        currency=currency,
+        title=chart_title,
+        period_str=period_str,
+        method=result.method,
+        confidence_pct=conf_pct,
     )
 
     # ── Enrich parsed with forecast metadata for format_result_step ──────────
     enriched_parsed = {
         **parsed,
-        "query_type":      "forecast",
+        "query_type": "forecast",
+        "_mlflow_tracking": mlflow_tracking,
         "_forecast_result": {
-            "method":         result.method,
-            "periods":        periods,
-            "rmse":           round(result.rmse, 2),
-            "trend_pct":      result.trend_pct,
+            "method": result.method,
+            "periods": periods,
+            "rmse": round(result.rmse, 2),
+            "trend_pct": result.trend_pct,
             "confidence_pct": conf_pct,
-            "hist_labels":    hist_labels,
-            "hist_values":    hist_values,
-            "fc_labels":      fc_labels,
-            "fc_values":      [round(v, 2) for v in result.forecast],
-            "fc_lower":       [round(v, 2) for v in result.lower_bound],
-            "fc_upper":       [round(v, 2) for v in result.upper_bound],
+            "hist_labels": hist_labels,
+            "hist_values": hist_values,
+            "fc_labels": fc_labels,
+            "fc_values": [round(v, 2) for v in result.forecast],
+            "fc_lower": [round(v, 2) for v in result.lower_bound],
+            "fc_upper": [round(v, 2) for v in result.upper_bound],
         },
     }
     if goal_result:
@@ -681,21 +787,27 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     if qs:
         now_iso = datetime.now(timezone.utc).isoformat()
         prev_ts = qs.get("status_timestamps", {})
-        await ctx.state.set("queries", query_id, {
-            **qs,
-            "status":       "forecast_computed",
-            "chart_config": chart_config,
-            "updatedAt":    now_iso,
-            "status_timestamps": {**prev_ts, "forecast_computed": now_iso},
-        })
+        await ctx.state.set(
+            "queries",
+            query_id,
+            {
+                **qs,
+                "status": "forecast_computed",
+                "chart_config": chart_config,
+                "updatedAt": now_iso,
+                "status_timestamps": {**prev_ts, "forecast_computed": now_iso},
+            },
+        )
 
-    await ctx.enqueue({
-        "topic": "query::detect.anomalies",
-        "data":  {
-            **input_data,
-            "parsed":        enriched_parsed,
-            "results":       results + forecast_rows,
-            "forecast_rows": forecast_rows,
-            "_chart_config": chart_config,
-        },
-    })
+    await ctx.enqueue(
+        {
+            "topic": "query::detect.anomalies",
+            "data": {
+                **input_data,
+                "parsed": enriched_parsed,
+                "results": results + forecast_rows,
+                "forecast_rows": forecast_rows,
+                "_chart_config": chart_config,
+            },
+        }
+    )

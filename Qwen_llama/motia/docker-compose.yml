@@ -15,6 +15,9 @@ services:
     volumes:
       - ./steps:/app/motia/steps
       - ./data:/app/motia/data
+    depends_on:
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3121/health"]
@@ -22,3 +25,35 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
+
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  ws-bridge:
+    build:
+      context: ..
+      dockerfile: Dockerfile.ws_bridge
+    ports:
+      - "8001:8001"
+    env_file:
+      - ../.env
+    environment:
+      - MOTIA_API_BASE_URL=http://motia-engine:3121
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      motia-engine:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped

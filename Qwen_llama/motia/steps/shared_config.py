@@ -38,4 +38,6 @@ try:
 except ValueError:
     PARSE_INTENT_MAX_RETRIES = 2
 
+PARSE_INTENT_USE_INSTRUCTOR = os.getenv("PARSE_INTENT_USE_INSTRUCTOR", "1") == "1"
+
 DUCKDB_PATH = os.getenv("DUCKDB_PATH", "motia/data/analytics.duckdb")

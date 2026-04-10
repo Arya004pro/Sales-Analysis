@@ -560,6 +560,8 @@ footer {
 <script>
 /* ─── Config ─────────────────────────────────────────────────── */
 const API = 'http://localhost:3121';
+const WS_BRIDGE_HTTP = 'http://localhost:8001';
+const WS_BRIDGE_WS = WS_BRIDGE_HTTP.replace(/^http/i, 'ws');
 
 /* ─── Step definitions ───────────────────────────────────────── */
 const STEPS = [
@@ -589,6 +591,8 @@ const STATUS_MAP = {
 
 /* ─── State ──────────────────────────────────────────────────── */
 let pollTimer       = null;
+let wsConn          = null;
+let wsClosingByApp  = false;
 let currentQueryId  = null;
 let pendingSession  = null;   // queryId to pass back on clarification
 
@@ -718,7 +722,7 @@ async function sendQuery() {
     currentQueryId = data.queryId;
     input.value    = '';
     document.getElementById('query-id-label').textContent = `ID: ${currentQueryId}`;
-    setStatus(`Accepted — polling for updates…`);
+    setStatus(`Accepted — waiting for live updates…`);
     startPoll();
   } catch (e) {
     setDot(false);
@@ -741,10 +745,66 @@ async function sendClarification() {
 /* ─── Polling ────────────────────────────────────────────────── */
 function startPoll() {
   stopPoll();
-  pollTimer = setInterval(poll, 700);
+  if (!startWebSocketUpdates()) {
+    pollTimer = setInterval(poll, 700);
+  }
 }
 function stopPoll() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  stopWebSocketUpdates();
+}
+
+function startWebSocketUpdates() {
+  if (!currentQueryId || typeof WebSocket === 'undefined') return false;
+
+  const wsUrl = `${WS_BRIDGE_WS}/ws/query/${encodeURIComponent(currentQueryId)}`;
+  wsClosingByApp = false;
+
+  try {
+    wsConn = new WebSocket(wsUrl);
+  } catch (_) {
+    wsConn = null;
+    return false;
+  }
+
+  wsConn.onopen = () => {
+    setDot(true);
+    setStatus('Live websocket connected');
+  };
+
+  wsConn.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data || '{}');
+      handleState(data);
+    } catch (_) {
+      // Ignore malformed bridge messages and keep stream alive.
+    }
+  };
+
+  wsConn.onerror = () => {
+    setDot(false);
+    if (!pollTimer) {
+      pollTimer = setInterval(poll, 700);
+      setStatus('Websocket unavailable — using polling');
+    }
+  };
+
+  wsConn.onclose = () => {
+    wsConn = null;
+    if (!wsClosingByApp && !pollTimer) {
+      pollTimer = setInterval(poll, 700);
+      setStatus('Live stream closed — using polling');
+    }
+  };
+
+  return true;
+}
+
+function stopWebSocketUpdates() {
+  if (!wsConn) return;
+  wsClosingByApp = true;
+  try { wsConn.close(); } catch (_) { }
+  wsConn = null;
 }
 
 async function poll() {

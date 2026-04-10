@@ -6,6 +6,7 @@ from types import ModuleType
 from typing import Any
 
 from motia import FlowContext
+from utils.sql_memory import fetch_sql_examples, render_examples_block
 
 
 async def run_text_to_sql(
@@ -123,6 +124,15 @@ async def run_text_to_sql(
 
         try:
             schema = step.get_schema_prompt(mode="compact", user_query=user_query)
+            examples = fetch_sql_examples(user_query, limit=3)
+            examples_block = render_examples_block(examples)
+            if examples_block:
+                schema = f"{schema}\n\n{examples_block}"
+                ctx.logger.info(
+                    "Using few-shot SQL memory",
+                    {"queryId": query_id, "example_count": len(examples)},
+                )
+
             prompt = step._build_llm_prompt(user_query, parsed, schema)
             raw, usage = step._call_llm(model, prompt)
             ctx.logger.info("🔬 LLM raw", {"queryId": query_id, "preview": raw[:400]})

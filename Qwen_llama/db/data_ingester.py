@@ -1661,6 +1661,18 @@ def ingest_files(
         except Exception:
             semantic_catalog = {"dimensions": [], "metrics": []}
 
+        dbt_result = {"enabled": False, "status": "skipped"}
+        try:
+            from db.dbt_runner import run_dbt_models
+
+            dbt_result = run_dbt_models()
+        except Exception as exc:
+            dbt_result = {
+                "enabled": True,
+                "status": "error",
+                "reason": f"dbt hook failed: {exc}",
+            }
+
         return {
             "tables_created": created,
             "row_counts": row_counts,
@@ -1670,6 +1682,7 @@ def ingest_files(
             "discovered_files": discovered_paths,
             "llm_schema_hints": llm_hints,
             "semantic_catalog": semantic_catalog,
+            "dbt_result": dbt_result,
             "schema": schema,
         }
     finally:

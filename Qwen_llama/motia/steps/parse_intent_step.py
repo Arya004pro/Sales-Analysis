@@ -34,13 +34,26 @@ from shared_config import (
     QWEN_ENABLE_REASONING,
     QWEN_REASONING_EFFORT,
     PARSE_INTENT_MAX_RETRIES,
+    PARSE_INTENT_USE_INSTRUCTOR,
 )
 from utils.token_logger import log_tokens, add_tokens_to_state, calc_max_tokens
 from utils.time_parser import parse_time_ranges_from_query
 from utils.llm_client import clean_model_text, is_rate_limit_error, post_chat_completion
 from db.schema_context import get_schema_prompt
 from db.duckdb_connection import get_read_connection
-from db.semantic_layer import resolve_intent_with_semantic_layer
+from llm.structured_intent import parse_intent_with_instructor
+
+try:
+    # Prefer the new generic resolver name if present.
+    from db.semantic_layer import resolve_semantic_context as _semantic_resolver
+except Exception:
+    try:
+        # Backward compatible resolver name used by existing semantic layer.
+        from db.semantic_layer import (
+            resolve_intent_with_semantic_layer as _semantic_resolver,
+        )
+    except Exception:
+        _semantic_resolver = None
 
 config = {
     "name": "IntentParser",
@@ -380,6 +393,19 @@ _EXPLICIT_NEW_INTENT_CUES = (
     "over time",
     "time series",
 )
+
+
+def _resolve_semantic_context(parsed: dict, user_query: str) -> dict:
+    """Resolve semantic aliases defensively without failing intent parsing."""
+    if not isinstance(parsed, dict):
+        return parsed
+    if _semantic_resolver is None:
+        return parsed
+    try:
+        resolved = _semantic_resolver(parsed, user_query)
+        return resolved if isinstance(resolved, dict) else parsed
+    except Exception:
+        return parsed
 
 
 # ── Schema-driven fallback builder ────────────────────────────────────────────
@@ -2052,8 +2078,8 @@ def _post_process(
     if entity.endswith("_id"):
         parsed["entity"] = entity[:-3] + "_name"
 
-    # Resolve semantic aliases to concrete schema columns
-    parsed = resolve_intent_with_semantic_layer(parsed, user_query)
+    # Resolve semantic aliases to concrete schema columns.
+    parsed = _resolve_semantic_context(parsed, user_query)
 
     if (parsed.get("metric") or "").lower() == "aov":
         _, metric_map = _get_schema_maps()
@@ -2207,6 +2233,22 @@ def _call_parse_model(user_query: str, schema: str, model: str) -> tuple[dict, d
 
     if QWEN_ENABLE_REASONING and "qwen" in model.lower() and QWEN_REASONING_EFFORT:
         payload["reasoning_effort"] = QWEN_REASONING_EFFORT
+
+    if PARSE_INTENT_USE_INSTRUCTOR:
+        try:
+            return parse_intent_with_instructor(
+                api_url=GROQ_URL,
+                api_token=GROQ_API_TOKEN,
+                model=model,
+                system_prompt=system,
+                user_query=user_query,
+                max_tokens=payload["max_tokens"],
+                enable_reasoning=QWEN_ENABLE_REASONING,
+                reasoning_effort=QWEN_REASONING_EFFORT,
+            )
+        except Exception:
+            # Fall back to legacy JSON parsing path for compatibility.
+            pass
 
     data = post_chat_completion(
         api_url=GROQ_URL,

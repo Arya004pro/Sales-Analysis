@@ -6,6 +6,7 @@ from types import ModuleType
 from typing import Any
 
 from motia import FlowContext
+from utils.sql_memory import store_sql_example
 
 
 async def run_execute_query(
@@ -117,6 +118,15 @@ async def run_execute_query(
             f"SQL returned scalar instead of rows for query_type={qt}.",
         )
         return
+
+    stored = store_sql_example(
+        user_query=user_query,
+        generated_sql=generated_sql,
+        parsed=parsed,
+        result_rows=len(results),
+    )
+    if stored:
+        ctx.logger.info("Stored SQL memory example", {"queryId": query_id})
 
     qs = await ctx.state.get("queries", query_id)
     if qs:

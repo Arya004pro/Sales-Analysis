@@ -1,0 +1,16 @@
+name: sales_analysis_dbt
+version: 1.0.0
+config-version: 2
+
+profile: sales_analysis_dbt
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+models:
+  sales_analysis_dbt:
+    marts:
+      +materialized: view

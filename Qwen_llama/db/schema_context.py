@@ -14,6 +14,7 @@ import time
 
 from db.duckdb_connection import get_read_connection
 from db.semantic_layer import render_semantic_layer_lines
+from utils.redis_cache import redis_cache_get, redis_cache_set
 
 _STATIC_FALLBACK = """
 No tables are currently loaded in the database.
@@ -25,33 +26,69 @@ Use ? placeholders for all params in generated SQL.
 
 # ── Column patterns that signal "exclude this row from metrics" ───────────────
 _FILTER_COLUMN_RULES: dict[str, str] = {
-    "is_cancelled":  "{col} = 0",
-    "is_deleted":    "{col} = 0",
-    "cancelled":     "{col} = 0",
-    "is_active":     "{col} = 1",
-    "active":        "{col} = 1",
-    "is_refunded":   "{col} = 0",
-    "refunded":      "{col} = 0",
-    "is_void":       "{col} = 0",
-    "is_fraud":      "{col} = 0",
-    "is_test":       "{col} = 0",
+    "is_cancelled": "{col} = 0",
+    "is_deleted": "{col} = 0",
+    "cancelled": "{col} = 0",
+    "is_active": "{col} = 1",
+    "active": "{col} = 1",
+    "is_refunded": "{col} = 0",
+    "refunded": "{col} = 0",
+    "is_void": "{col} = 0",
+    "is_fraud": "{col} = 0",
+    "is_test": "{col} = 0",
 }
 
 _STATUS_BAD_VALUES: set[str] = {
-    "cancelled", "canceled", "refunded", "void", "failed",
-    "rejected", "returned", "closed", "inactive", "deleted",
+    "cancelled",
+    "canceled",
+    "refunded",
+    "void",
+    "failed",
+    "rejected",
+    "returned",
+    "closed",
+    "inactive",
+    "deleted",
 }
 
 _ENTITY_NAME_HINTS: tuple[str, ...] = (
-    "name", "title", "label", "code", "id", "location", "warehouse",
-    "store", "branch", "driver", "brand", "vendor", "customer",
-    "employee", "agent", "partner", "city", "state", "region",
+    "name",
+    "title",
+    "label",
+    "code",
+    "id",
+    "location",
+    "warehouse",
+    "store",
+    "branch",
+    "driver",
+    "brand",
+    "vendor",
+    "customer",
+    "employee",
+    "agent",
+    "partner",
+    "city",
+    "state",
+    "region",
 )
 
 _NON_ENTITY_NAME_HINTS: tuple[str, ...] = (
-    "date", "time", "timestamp", "created", "updated", "deleted",
-    "status", "type", "description", "comment", "note", "month",
-    "year", "week", "day",
+    "date",
+    "time",
+    "timestamp",
+    "created",
+    "updated",
+    "deleted",
+    "status",
+    "type",
+    "description",
+    "comment",
+    "note",
+    "month",
+    "year",
+    "week",
+    "day",
 )
 
 # Integer types that might hold epoch timestamps
@@ -60,6 +97,7 @@ _BIGINT_TYPES = ("BIGINT", "INT8", "LONG", "HUGEINT", "INT64")
 _SCHEMA_PROMPT_CACHE: dict[str, tuple[float, str]] = {}
 _SCHEMA_PROMPT_CACHE_TTL_SECS = 300.0
 _SCHEMA_MINIFIED_QUERY_RE = re.compile(r"[^a-z0-9_ ]+")
+_SCHEMA_PROMPT_CACHE_PREFIX = "schema_prompt_cache:v1:"
 
 
 def _normalize_query_signature(user_query: str | None) -> str:
@@ -74,6 +112,12 @@ def _normalize_query_signature(user_query: str | None) -> str:
 
 
 def _cache_get(cache_key: str) -> str | None:
+    redis_key = f"{_SCHEMA_PROMPT_CACHE_PREFIX}{cache_key}"
+    cached = redis_cache_get(redis_key)
+    if cached is not None:
+        _SCHEMA_PROMPT_CACHE[cache_key] = (time.time(), cached)
+        return cached
+
     hit = _SCHEMA_PROMPT_CACHE.get(cache_key)
     if not hit:
         return None
@@ -86,6 +130,8 @@ def _cache_get(cache_key: str) -> str | None:
 
 def _cache_put(cache_key: str, value: str) -> None:
     _SCHEMA_PROMPT_CACHE[cache_key] = (time.time(), value)
+    redis_key = f"{_SCHEMA_PROMPT_CACHE_PREFIX}{cache_key}"
+    redis_cache_set(redis_key, value, ttl_seconds=int(_SCHEMA_PROMPT_CACHE_TTL_SECS))
 
 
 def _schema_fingerprint(conn) -> str:
@@ -104,7 +150,9 @@ def _schema_fingerprint(conn) -> str:
     return hashlib.sha1(serial.encode("utf-8")).hexdigest()[:16]
 
 
-def _column_priority(col_name: str, dtype: str, query_sig: str) -> tuple[int, int, int, int]:
+def _column_priority(
+    col_name: str, dtype: str, query_sig: str
+) -> tuple[int, int, int, int]:
     n = (col_name or "").lower()
     d = (dtype or "").upper()
     qparts = set(query_sig.split()) if query_sig and query_sig != "all" else set()
@@ -113,9 +161,24 @@ def _column_priority(col_name: str, dtype: str, query_sig: str) -> tuple[int, in
         score += 8
     if any(k in n for k in ("date", "time", "created", "updated", "timestamp")):
         score += 7
-    if any(k in n for k in ("name", "title", "label", "category", "brand", "store", "region")):
+    if any(
+        k in n
+        for k in ("name", "title", "label", "category", "brand", "store", "region")
+    ):
         score += 6
-    if any(k in n for k in ("revenue", "sales", "amount", "total", "final", "earning", "qty", "quantity")):
+    if any(
+        k in n
+        for k in (
+            "revenue",
+            "sales",
+            "amount",
+            "total",
+            "final",
+            "earning",
+            "qty",
+            "quantity",
+        )
+    ):
         score += 6
     if any(k in n for k in ("status", "active", "deleted", "cancelled", "refunded")):
         score += 4
@@ -131,7 +194,9 @@ def _column_priority(col_name: str, dtype: str, query_sig: str) -> tuple[int, in
     )
 
 
-def _pick_table_columns(cols: list[tuple[str, str]], query_sig: str, max_cols: int) -> list[tuple[str, str]]:
+def _pick_table_columns(
+    cols: list[tuple[str, str]], query_sig: str, max_cols: int
+) -> list[tuple[str, str]]:
     if len(cols) <= max_cols:
         return cols
     ranked = sorted(
@@ -176,12 +241,17 @@ def _is_text_type(dtype: str) -> bool:
 
 def _is_numeric_type(dtype: str) -> bool:
     d = dtype.upper()
-    return any(t in d for t in ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL"))
+    return any(
+        t in d
+        for t in ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "REAL")
+    )
 
 
 def _looks_like_date_column(col_name: str) -> bool:
     n = col_name.lower()
-    return any(k in n for k in ("date", "time", "timestamp", "month", "year", "week", "day"))
+    return any(
+        k in n for k in ("date", "time", "timestamp", "month", "year", "week", "day")
+    )
 
 
 def _looks_like_entity_column(col_name: str) -> bool:
@@ -196,6 +266,7 @@ def _looks_like_entity_column(col_name: str) -> bool:
 
 
 # ── Epoch timestamp helpers (NEW) ─────────────────────────────────────────────
+
 
 def _get_epoch_cast_expr(conn, table: str, col: str) -> str:
     """
@@ -225,7 +296,16 @@ def _get_epoch_cast_expr(conn, table: str, col: str) -> str:
 
 def _is_bigint_epoch_col(col_name: str, dtype: str) -> bool:
     """Return True when this BIGINT column name looks like a datetime column."""
-    _DATE_KEYWORDS = ("date", "time", "created", "updated", "at", "on", "when", "timestamp")
+    _DATE_KEYWORDS = (
+        "date",
+        "time",
+        "created",
+        "updated",
+        "at",
+        "on",
+        "when",
+        "timestamp",
+    )
     d = dtype.upper()
     if not any(t in d for t in _BIGINT_TYPES):
         return False
@@ -234,11 +314,15 @@ def _is_bigint_epoch_col(col_name: str, dtype: str) -> bool:
 
 # ── Entity detection ──────────────────────────────────────────────────────────
 
+
 def _detect_entities(conn, tables: list[str]) -> list[str]:
     hints: list[str] = []
     for table in tables:
         try:
-            cols = [(c[0], c[1].upper()) for c in conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
         except Exception:
             continue
 
@@ -266,9 +350,9 @@ def _detect_entities(conn, tables: list[str]) -> list[str]:
             ratio = distinct_cnt / non_null
             id_like = col_name.lower() == "id" or col_name.lower().endswith("_id")
             high_card = (
-                (distinct_cnt >= 10 and ratio >= 0.30) or
-                (distinct_cnt >= 50 and ratio >= 0.15) or
-                (id_like and distinct_cnt >= 10 and ratio >= 0.60)
+                (distinct_cnt >= 10 and ratio >= 0.30)
+                or (distinct_cnt >= 50 and ratio >= 0.15)
+                or (id_like and distinct_cnt >= 10 and ratio >= 0.60)
             )
             if not high_card:
                 continue
@@ -279,7 +363,9 @@ def _detect_entities(conn, tables: list[str]) -> list[str]:
                 score += 0.40
             elif id_like:
                 score += 0.30
-            elif any(k in n for k in ("location", "store", "warehouse", "branch", "code")):
+            elif any(
+                k in n for k in ("location", "store", "warehouse", "branch", "code")
+            ):
                 score += 0.25
             if distinct_cnt >= 100:
                 score += 0.10
@@ -292,7 +378,7 @@ def _detect_entities(conn, tables: list[str]) -> list[str]:
         candidates.sort(reverse=True)
         top = candidates[:2]
         col_bits = ", ".join(
-            f'{col} (distinct={distinct_cnt}/{non_null}, ratio={ratio:.2f})'
+            f"{col} (distinct={distinct_cnt}/{non_null}, ratio={ratio:.2f})"
             for _, col, distinct_cnt, non_null, ratio in top
         )
         hints.append(f'  "{table}" -> {col_bits}')
@@ -306,7 +392,10 @@ def _detect_uniqueness_profile(conn, tables: list[str]) -> tuple[list[str], list
 
     for table in tables:
         try:
-            cols = [(c[0], c[1].upper()) for c in conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
         except Exception:
             continue
 
@@ -340,31 +429,51 @@ def _detect_uniqueness_profile(conn, tables: list[str]) -> tuple[list[str], list
 
             n = col_name.lower()
             id_like = (
-                n == "id" or n.endswith("_id") or n.endswith("_uuid") or n.endswith("_key")
-                or "email" in n or "phone" in n or "mobile" in n or n.endswith("_code")
+                n == "id"
+                or n.endswith("_id")
+                or n.endswith("_uuid")
+                or n.endswith("_key")
+                or "email" in n
+                or "phone" in n
+                or "mobile" in n
+                or n.endswith("_code")
                 or ratio > 0.99
             )
             if distinct_cnt >= 2 and ratio >= 0.98 and id_like:
                 unique_like.append(col_name)
 
             if _is_text_type(dtype) and distinct_cnt >= 2 and ratio < 0.98:
-                label_non_unique.append(f"{col_name} ({distinct_cnt}/{non_null}, ratio={ratio:.2f})")
+                label_non_unique.append(
+                    f"{col_name} ({distinct_cnt}/{non_null}, ratio={ratio:.2f})"
+                )
 
         if unique_like:
-            profile_lines.append(f'  "{table}" UNIQUE columns (use for COUNT DISTINCT): {", ".join(unique_like[:10])}')
+            profile_lines.append(
+                f'  "{table}" UNIQUE columns (use for COUNT DISTINCT): {", ".join(unique_like[:10])}'
+            )
         if label_non_unique:
-            profile_lines.append(f'  "{table}" non-unique labels: {", ".join(label_non_unique[:6])}')
+            profile_lines.append(
+                f'  "{table}" non-unique labels: {", ".join(label_non_unique[:6])}'
+            )
 
         for raw_col, dtype in cols:
             c = raw_col.lower()
             if _is_text_type(dtype):
                 base = c[:-5] if c.endswith("_name") else c
-                key_candidates = [f"{base}_id", f"{base}_code", f"{base}_key", f"{base}_uuid", "id"]
+                key_candidates = [
+                    f"{base}_id",
+                    f"{base}_code",
+                    f"{base}_key",
+                    f"{base}_uuid",
+                    "id",
+                ]
                 chosen = None
                 for k in key_candidates:
-                    if k == c: continue
+                    if k == c:
+                        continue
                     stats = col_stats.get(k)
-                    if not stats: continue
+                    if not stats:
+                        continue
                     _, non_null, ratio = stats
                     if non_null >= 2 and ratio >= 0.98:
                         chosen = k
@@ -372,7 +481,9 @@ def _detect_uniqueness_profile(conn, tables: list[str]) -> tuple[list[str], list
                 if chosen:
                     lbl_stats = col_stats.get(c)
                     if lbl_stats and lbl_stats[2] < 0.98:
-                        grouping_lines.append(f'  "{table}": to group by "{c}", use GROUP BY "{chosen}", "{c}"')
+                        grouping_lines.append(
+                            f'  "{table}": to group by "{c}", use GROUP BY "{chosen}", "{c}"'
+                        )
 
     return profile_lines, grouping_lines
 
@@ -382,8 +493,10 @@ def _detect_business_rules(conn, tables: list[str]) -> list[str]:
 
     for table in tables:
         try:
-            cols = {c[0].lower(): c[1].upper() for c in
-                    conn.execute(f'DESCRIBE "{table}"').fetchall()}
+            cols = {
+                c[0].lower(): c[1].upper()
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            }
         except Exception:
             continue
 
@@ -393,25 +506,30 @@ def _detect_business_rules(conn, tables: list[str]) -> list[str]:
                 condition = rule_tmpl.format(col=col_name)
                 rules.append(
                     f'  "{table}": always add WHERE {condition}'
-                    f'  -- exclude {"inactive" if "active" in col_name else "cancelled/invalid"} rows'
+                    f"  -- exclude {'inactive' if 'active' in col_name else 'cancelled/invalid'} rows"
                 )
                 continue
 
-            if col_name in ("status", "order_status", "ride_status",
-                            "payment_status", "state"):
+            if col_name in (
+                "status",
+                "order_status",
+                "ride_status",
+                "payment_status",
+                "state",
+            ):
                 try:
                     rows = conn.execute(
                         f'SELECT DISTINCT "{col_name}" FROM "{table}" LIMIT 30'
                     ).fetchall()
                     values = {str(r[0]).lower() for r in rows if r[0] is not None}
-                    bad    = values & _STATUS_BAD_VALUES
-                    good   = values - _STATUS_BAD_VALUES - {""}
+                    bad = values & _STATUS_BAD_VALUES
+                    good = values - _STATUS_BAD_VALUES - {""}
                     if bad and good:
                         good_list = ", ".join(f"'{v}'" for v in sorted(good)[:6])
                         rules.append(
                             f'  "{table}".{col_name}: only include rows where '
-                            f'{col_name} IN ({good_list})'
-                            f'  -- exclude {sorted(bad)}'
+                            f"{col_name} IN ({good_list})"
+                            f"  -- exclude {sorted(bad)}"
                         )
                 except Exception:
                     pass
@@ -422,40 +540,65 @@ def _detect_business_rules(conn, tables: list[str]) -> list[str]:
 def _detect_metric_columns(conn, tables: list[str]) -> list[str]:
     hints: list[str] = []
 
-    MONETARY_KEYWORDS   = ("price", "fare", "amount", "earning", "revenue",
-                           "commission", "fee", "cost", "sale", "payment", "total")
-    QUANTITY_KEYWORDS   = ("quantity", "qty", "count", "units", "volume")
-    DISTANCE_KEYWORDS   = ("distance", "km", "mile")
-    DURATION_KEYWORDS   = ("duration", "minute", "min", "second", "hour")
+    MONETARY_KEYWORDS = (
+        "price",
+        "fare",
+        "amount",
+        "earning",
+        "revenue",
+        "commission",
+        "fee",
+        "cost",
+        "sale",
+        "payment",
+        "total",
+    )
+    QUANTITY_KEYWORDS = ("quantity", "qty", "count", "units", "volume")
+    DISTANCE_KEYWORDS = ("distance", "km", "mile")
+    DURATION_KEYWORDS = ("duration", "minute", "min", "second", "hour")
 
     for table in tables:
         try:
-            cols = [(c[0], c[1].upper()) for c in
-                    conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
         except Exception:
             continue
 
-        monetary_cols  = [c for c, t in cols if any(k in c.lower() for k in MONETARY_KEYWORDS)
-                          and any(x in t for x in ("FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "INT"))]
-        quantity_cols  = [c for c, t in cols if any(k in c.lower() for k in QUANTITY_KEYWORDS)
-                          and any(x in t for x in ("INT", "FLOAT", "DOUBLE"))]
-        distance_cols  = [c for c, t in cols if any(k in c.lower() for k in DISTANCE_KEYWORDS)]
-        duration_cols  = [c for c, t in cols if any(k in c.lower() for k in DURATION_KEYWORDS)]
+        monetary_cols = [
+            c
+            for c, t in cols
+            if any(k in c.lower() for k in MONETARY_KEYWORDS)
+            and any(x in t for x in ("FLOAT", "DOUBLE", "DECIMAL", "NUMERIC", "INT"))
+        ]
+        quantity_cols = [
+            c
+            for c, t in cols
+            if any(k in c.lower() for k in QUANTITY_KEYWORDS)
+            and any(x in t for x in ("INT", "FLOAT", "DOUBLE"))
+        ]
+        distance_cols = [
+            c for c, t in cols if any(k in c.lower() for k in DISTANCE_KEYWORDS)
+        ]
+        duration_cols = [
+            c for c, t in cols if any(k in c.lower() for k in DURATION_KEYWORDS)
+        ]
 
         if monetary_cols:
             preferred = next(
                 (c for c in monetary_cols if "final" in c.lower()),
-                next((c for c in monetary_cols if "total" in c.lower()), monetary_cols[0])
+                next(
+                    (c for c in monetary_cols if "total" in c.lower()), monetary_cols[0]
+                ),
             )
             hints.append(
                 f'  revenue/sales/earnings in "{table}" → SUM({preferred})'
-                f'  (all monetary columns: {", ".join(monetary_cols)})'
+                f"  (all monetary columns: {', '.join(monetary_cols)})"
             )
 
         if quantity_cols:
-            hints.append(
-                f'  quantity/units in "{table}" → SUM({quantity_cols[0]})'
-            )
+            hints.append(f'  quantity/units in "{table}" → SUM({quantity_cols[0]})')
 
         if distance_cols:
             hints.append(f'  distance in "{table}" → SUM({distance_cols[0]})')
@@ -481,8 +624,10 @@ def _detect_date_columns(conn, tables: list[str]) -> list[str]:
 
     for table in tables:
         try:
-            cols = [(c[0], c[1].upper()) for c in
-                    conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
         except Exception:
             continue
 
@@ -496,23 +641,23 @@ def _detect_date_columns(conn, tables: list[str]) -> list[str]:
                 hints.append(
                     f'  date filter for "{table}"."{col}" (type: {dtype}): '
                     f'use CAST("{col}" AS DATE) >= ? AND CAST("{col}" AS DATE) < ?  '
-                    f'(exclusive end — pass end+1day as second ?)'
+                    f"(exclusive end — pass end+1day as second ?)"
                 )
 
             elif any(t in dtype for t in _BIGINT_TYPES):
                 # Integer epoch — CAST(col AS DATE) will FAIL.  Must convert first.
                 epoch_expr = _get_epoch_cast_expr(conn, table, col)
-                cast_for_date = f'CAST({epoch_expr} AS DATE)'
+                cast_for_date = f"CAST({epoch_expr} AS DATE)"
                 hints.append(
                     f'  date filter for "{table}"."{col}" (type: {dtype} — INTEGER EPOCH TIMESTAMP):\n'
                     f'    *** CRITICAL: "{col}" is stored as an INTEGER, not a native date. ***\n'
-                    f'    CORRECT:   {cast_for_date} >= ? AND {cast_for_date} < ?\n'
+                    f"    CORRECT:   {cast_for_date} >= ? AND {cast_for_date} < ?\n"
                     f'    WRONG:     CAST("{col}" AS DATE) >= ?   ← causes BIGINT->DATE error\n'
                     f'    WRONG:     "{col}" >= ?                  ← causes type mismatch\n'
-                    f'    For EXTRACT:   EXTRACT(YEAR FROM {epoch_expr})\n'
-                    f'    For STRFTIME:  STRFTIME({epoch_expr}, \'%Y-%m\')\n'
-                    f'    For DATE_TRUNC: DATE_TRUNC(\'month\', {epoch_expr})\n'
-                    f'    Always use {epoch_expr} before any date operation on this column.'
+                    f"    For EXTRACT:   EXTRACT(YEAR FROM {epoch_expr})\n"
+                    f"    For STRFTIME:  STRFTIME({epoch_expr}, '%Y-%m')\n"
+                    f"    For DATE_TRUNC: DATE_TRUNC('month', {epoch_expr})\n"
+                    f"    Always use {epoch_expr} before any date operation on this column."
                 )
 
     return hints
@@ -524,8 +669,17 @@ def _build_schema_examples(conn, tables: list[str]) -> list[str]:
     Now epoch-aware: if the date column is BIGINT, uses the right cast.
     """
     metric_keywords = (
-        "final", "total", "amount", "revenue", "sales", "price",
-        "fare", "earning", "commission", "quantity", "count",
+        "final",
+        "total",
+        "amount",
+        "revenue",
+        "sales",
+        "price",
+        "fare",
+        "earning",
+        "commission",
+        "quantity",
+        "count",
     )
     date_keywords = ("date", "time", "created", "updated", "at")
 
@@ -534,20 +688,26 @@ def _build_schema_examples(conn, tables: list[str]) -> list[str]:
 
     for table in tables:
         try:
-            cols = [(c[0], c[1].upper()) for c in conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
         except Exception:
             continue
 
         entity_cols = [
-            c for c, t in cols
-            if _is_text_type(t) and _looks_like_entity_column(c)
+            c for c, t in cols if _is_text_type(t) and _looks_like_entity_column(c)
         ]
         if not entity_cols:
             continue
 
         metric_cols = [
-            c for c, t in cols
-            if any(x in t for x in ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC"))
+            c
+            for c, t in cols
+            if any(
+                x in t
+                for x in ("INT", "BIGINT", "FLOAT", "DOUBLE", "DECIMAL", "NUMERIC")
+            )
             and not c.lower().endswith("_id")
         ]
         if not metric_cols:
@@ -555,12 +715,16 @@ def _build_schema_examples(conn, tables: list[str]) -> list[str]:
 
         date_col_info: list[tuple[str, str]] = []  # (col_name, dtype)
         for c, t in cols:
-            if any(k in c.lower() for k in date_keywords) or any(x in t for x in ("DATE", "TIMESTAMP")):
+            if any(k in c.lower() for k in date_keywords) or any(
+                x in t for x in ("DATE", "TIMESTAMP")
+            ):
                 date_col_info.append((c, t))
         if not date_col_info:
             continue
 
-        entity_col = next((c for c in entity_cols if "name" in c.lower()), entity_cols[0])
+        entity_col = next(
+            (c for c in entity_cols if "name" in c.lower()), entity_cols[0]
+        )
         metric_col = next(
             (c for c in metric_cols if any(k in c.lower() for k in metric_keywords)),
             metric_cols[0],
@@ -570,14 +734,17 @@ def _build_schema_examples(conn, tables: list[str]) -> list[str]:
         # Determine the right date cast expression for this column
         if any(t in date_dtype.upper() for t in _BIGINT_TYPES):
             epoch_expr = _get_epoch_cast_expr(conn, table, date_col)
-            date_cast_expr = f'CAST({epoch_expr} AS DATE)'
+            date_cast_expr = f"CAST({epoch_expr} AS DATE)"
         else:
             date_cast_expr = f'CAST("{date_col}" AS DATE)'
 
         score = 0
         if "name" in entity_col.lower():
             score += 3
-        if any(k in metric_col.lower() for k in ("revenue", "sales", "amount", "final", "total", "price")):
+        if any(
+            k in metric_col.lower()
+            for k in ("revenue", "sales", "amount", "final", "total", "price")
+        ):
             score += 3
         if "date" in date_col.lower():
             score += 2
@@ -604,20 +771,20 @@ def _build_schema_examples(conn, tables: list[str]) -> list[str]:
         f'    User: "Top 10 {entity_col} by {metric_col} in a time range"',
         f'    SQL:  SELECT "{entity_col}" AS name, SUM("{metric_col}") AS value',
         f'          FROM "{table}"',
-        f'          WHERE {date_cast_expr} >= ? AND {date_cast_expr} < ?',
-        f'          GROUP BY 1 ORDER BY value DESC LIMIT ?',
+        f"          WHERE {date_cast_expr} >= ? AND {date_cast_expr} < ?",
+        f"          GROUP BY 1 ORDER BY value DESC LIMIT ?",
         "",
         f"  Example 2 (Aggregate total):",
         f'    User: "Total {metric_col} in a time range"',
         f'    SQL:  SELECT SUM("{metric_col}") AS value',
         f'          FROM "{table}"',
-        f'          WHERE {date_cast_expr} >= ? AND {date_cast_expr} < ?',
+        f"          WHERE {date_cast_expr} >= ? AND {date_cast_expr} < ?",
         "",
         f"  Example 3 (Monthly trend):",
         f'    User: "Monthly trend of {metric_col}"',
-        f"    SQL:  SELECT {month_expr} AS name, SUM(\"{metric_col}\") AS value",
+        f'    SQL:  SELECT {month_expr} AS name, SUM("{metric_col}") AS value',
         f'          FROM "{table}"',
-        f'          WHERE {date_cast_expr} >= ? AND {date_cast_expr} < ?',
+        f"          WHERE {date_cast_expr} >= ? AND {date_cast_expr} < ?",
         "          GROUP BY 1 ORDER BY 1",
     ]
 
@@ -627,12 +794,17 @@ def _detect_date_columns_compact(conn, tables: list[str]) -> list[str]:
     DATE_KEYWORDS = ("date", "time", "created", "updated", "at", "on", "when")
     for table in tables:
         try:
-            cols = [(c[0], c[1].upper()) for c in conn.execute(f'DESCRIBE "{table}"').fetchall()]
+            cols = [
+                (c[0], c[1].upper())
+                for c in conn.execute(f'DESCRIBE "{table}"').fetchall()
+            ]
         except Exception:
             continue
         for col, dtype in cols:
             cl = col.lower()
-            if not any(k in cl for k in DATE_KEYWORDS) and not any(x in dtype for x in ("DATE", "TIMESTAMP")):
+            if not any(k in cl for k in DATE_KEYWORDS) and not any(
+                x in dtype for x in ("DATE", "TIMESTAMP")
+            ):
                 continue
             if any(x in dtype for x in ("DATE", "TIMESTAMP")):
                 hints.append(
@@ -696,15 +868,21 @@ def _live_schema_prompt() -> str:
 
         metric_hints = _detect_metric_columns(conn, tables)
         if metric_hints:
-            lines += ["", "Metric column mappings (USE THESE EXACT COLUMN NAMES)",
-                      "-----------------------------------------------------------"]
+            lines += [
+                "",
+                "Metric column mappings (USE THESE EXACT COLUMN NAMES)",
+                "-----------------------------------------------------------",
+            ]
             lines += metric_hints
 
         # Date column hints — now epoch-aware
         date_hints = _detect_date_columns(conn, tables)
         if date_hints:
-            lines += ["", "Date filter columns (READ CAREFULLY — some are BIGINT epochs)",
-                      "-------------------------------------------------------------------"]
+            lines += [
+                "",
+                "Date filter columns (READ CAREFULLY — some are BIGINT epochs)",
+                "-------------------------------------------------------------------",
+            ]
             lines += date_hints
 
         examples = _build_schema_examples(conn, tables)
@@ -773,7 +951,9 @@ def _live_schema_prompt_compact(user_query: str | None = None) -> str:
         table_to_cols: dict[str, list[tuple[str, str]]] = {}
         for t in tables:
             try:
-                table_to_cols[t] = [(c[0], c[1]) for c in conn.execute(f'DESCRIBE "{t}"').fetchall()]
+                table_to_cols[t] = [
+                    (c[0], c[1]) for c in conn.execute(f'DESCRIBE "{t}"').fetchall()
+                ]
             except Exception:
                 continue
         if not table_to_cols:
@@ -788,21 +968,29 @@ def _live_schema_prompt_compact(user_query: str | None = None) -> str:
             compact_cols = _pick_table_columns(cols, query_sig, max_cols=20)
             col_s = ", ".join(f"{c[0]} {c[1]}" for c in compact_cols)
             truncated = " ..." if len(cols) > len(compact_cols) else ""
-            lines.append(f'{t:<14}: {col_s}{truncated}')
+            lines.append(f"{t:<14}: {col_s}{truncated}")
 
         # Keep section titles stable so upstream prompt rules still align.
         metric_hints = _detect_metric_columns(conn, selected_tables)
-        lines += ["", "Metric column mappings (USE THESE EXACT COLUMN NAMES)",
-                  "-----------------------------------------------------------"]
-        lines += metric_hints or ["  (No obvious metric columns detected from names/types.)"]
+        lines += [
+            "",
+            "Metric column mappings (USE THESE EXACT COLUMN NAMES)",
+            "-----------------------------------------------------------",
+        ]
+        lines += metric_hints or [
+            "  (No obvious metric columns detected from names/types.)"
+        ]
 
         date_hints = _detect_date_columns_compact(conn, selected_tables)
         lines += ["", "Date filter columns", "-------------------"]
         lines += date_hints or ["  (No date-like columns detected.)"]
 
         biz_rules = _detect_business_rules(conn, selected_tables)
-        lines += ["", "MANDATORY business-validity filters (ALWAYS apply)",
-                  "----------------------------------------------------"]
+        lines += [
+            "",
+            "MANDATORY business-validity filters (ALWAYS apply)",
+            "----------------------------------------------------",
+        ]
         lines += biz_rules or ["  (No mandatory business filters detected.)"]
 
         # Semantic layer is already capped (dims/metrics), useful for generality.
@@ -834,7 +1022,9 @@ def get_schema_prompt(mode: str = "full", user_query: str | None = None) -> str:
             conn.close()
 
         normalized_mode = (mode or "full").strip().lower()
-        query_sig = _normalize_query_signature(user_query if normalized_mode == "compact" else "")
+        query_sig = _normalize_query_signature(
+            user_query if normalized_mode == "compact" else ""
+        )
         cache_key = f"{normalized_mode}|{fp}|{query_sig}"
         cached = _cache_get(cache_key)
         if cached:
