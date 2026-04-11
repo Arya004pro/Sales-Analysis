@@ -1,6 +1,7 @@
 from llm.client import call_llm
-from config import GROQ_API_TOKEN, LLAMA_MODEL
+from config import GROQ_API_TOKEN, QWEN_MODEL
 import json
+
 
 def extract_schema(entity, metric, time_range, ranking=None):
     prompt = f"""
@@ -29,10 +30,7 @@ Return ONLY valid JSON in this format:
     messages = [{"role": "user", "content": prompt}]
 
     result = call_llm(
-        model_name=LLAMA_MODEL,
-        messages=messages,
-        token=GROQ_API_TOKEN,
-        max_tokens=500
+        model_name=QWEN_MODEL, messages=messages, token=GROQ_API_TOKEN, max_tokens=500
     )
 
     return result["choices"][0]["message"]["content"]

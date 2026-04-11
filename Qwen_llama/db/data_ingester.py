@@ -1661,17 +1661,11 @@ def ingest_files(
         except Exception:
             semantic_catalog = {"dimensions": [], "metrics": []}
 
-        dbt_result = {"enabled": False, "status": "skipped"}
-        try:
-            from db.dbt_runner import run_dbt_models
-
-            dbt_result = run_dbt_models()
-        except Exception as exc:
-            dbt_result = {
-                "enabled": True,
-                "status": "error",
-                "reason": f"dbt hook failed: {exc}",
-            }
+        dbt_result = {
+            "enabled": False,
+            "status": "skipped",
+            "reason": "dbt integration removed",
+        }
 
         return {
             "tables_created": created,

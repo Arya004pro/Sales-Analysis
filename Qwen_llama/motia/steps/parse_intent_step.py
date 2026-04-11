@@ -28,7 +28,6 @@ from motia import FlowContext, queue
 from shared_config import (
     GROQ_API_TOKEN,
     QWEN_MODEL,
-    LLAMA_MODEL,
     GROQ_URL,
     QWEN_ENABLE_REASONING,
     QWEN_REASONING_EFFORT,
@@ -1820,18 +1819,6 @@ def _call_parse_with_retry_and_fallback(
                 break
             wait_sec = min((1.0 if is_rate_limit_error(exc) else 0.5) * attempt, 3.0)
             time.sleep(wait_sec)
-
-    fallback_model = (LLAMA_MODEL or "").strip()
-    if fallback_model and fallback_model != QWEN_MODEL:
-        for attempt in range(1, 3):
-            try:
-                parsed, usage = _call_parse_model(user_query, schema, fallback_model)
-                return parsed, usage, fallback_model
-            except Exception as exc:
-                last_exc = exc
-                if attempt < 2:
-                    wait_sec = 1.5 if is_rate_limit_error(exc) else 0.8
-                    time.sleep(wait_sec)
 
     if last_exc:
         raise last_exc

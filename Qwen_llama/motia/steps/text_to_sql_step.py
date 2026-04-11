@@ -30,7 +30,6 @@ from motia import FlowContext, queue
 
 from shared_config import (
     GROQ_API_TOKEN,
-    LLAMA_MODEL,
     SQL_GENERATOR_MODEL,
     GROQ_URL,
     QWEN_ENABLE_REASONING,

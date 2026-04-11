@@ -28,7 +28,6 @@ for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
 
 from motia import FlowContext, queue
 from utils.forecaster import forecast_auto, forecast, ForecastResult
-from utils.mlflow_tracker import log_forecast_run
 
 config = {
     "name": "ForecastProjection",
@@ -701,28 +700,6 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
             "status": "ok",
         }
 
-    mlflow_tracking = log_forecast_run(
-        query_id=query_id or "",
-        user_query=user_query,
-        parsed=parsed,
-        method=result.method,
-        periods=periods,
-        confidence_pct=conf_pct,
-        hist_values=hist_values,
-        forecast_values=[float(v) for v in (result.forecast or [])],
-        rmse=float(result.rmse or 0.0),
-        trend_pct=float(result.trend_pct or 0.0),
-        goal_result=goal_result,
-    )
-    if mlflow_tracking.get("logged"):
-        ctx.logger.info(
-            "MLflow forecast tracking logged",
-            {
-                "queryId": query_id,
-                "experiment": mlflow_tracking.get("experiment"),
-            },
-        )
-
     # ── Build combined results (historical + forecast rows) ───────────────────
     forecast_rows = []
     for i, (lbl, val, lo, hi) in enumerate(
@@ -764,7 +741,6 @@ async def handler(input_data: Any, ctx: FlowContext[Any]) -> None:
     enriched_parsed = {
         **parsed,
         "query_type": "forecast",
-        "_mlflow_tracking": mlflow_tracking,
         "_forecast_result": {
             "method": result.method,
             "periods": periods,

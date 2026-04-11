@@ -23,8 +23,7 @@ for _env in [
 
 GROQ_API_TOKEN = os.getenv("GROQ_API_TOKEN")
 QWEN_MODEL = os.getenv("QWEN_MODEL", "qwen/qwen3-32b")
-LLAMA_MODEL = os.getenv("LLAMA_MODEL", "llama-3.3-70b-versatile")
-SQL_GENERATOR_MODEL = os.getenv("SQL_GENERATOR_MODEL", LLAMA_MODEL)
+SQL_GENERATOR_MODEL = os.getenv("SQL_GENERATOR_MODEL", QWEN_MODEL)
 INSIGHTS_MODEL = os.getenv("INSIGHTS_MODEL", QWEN_MODEL)
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 

@@ -40,20 +40,3 @@ services:
       retries: 5
       start_period: 5s
 
-  ws-bridge:
-    build:
-      context: ..
-      dockerfile: Dockerfile.ws_bridge
-    ports:
-      - "8001:8001"
-    env_file:
-      - ../.env
-    environment:
-      - MOTIA_API_BASE_URL=http://motia-engine:3121
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      motia-engine:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    restart: unless-stopped

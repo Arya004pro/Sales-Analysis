@@ -1,7 +1,7 @@
 [project]
 name = "sales-analytics-motia"
 version = "0.1.0"
-description = "Motia workflow for Qwen + LLaMA Sales Analytics Assistant"
+description = "Motia workflow for Qwen Sales Analytics Assistant"
 requires-python = ">=3.10"
 
 dependencies = [
@@ -14,10 +14,5 @@ dependencies = [
     "openai>=1.107.0",
     "instructor>=1.12.0",
     "redis>=6.4.0",
-    "chromadb>=1.1.0",
-    "mlflow>=3.3.2",
-    "dbt-duckdb>=1.9.4",
-    "fastapi>=0.115.0",
-    "uvicorn>=0.31.0",
     "httpx>=0.27.2",
 ]
