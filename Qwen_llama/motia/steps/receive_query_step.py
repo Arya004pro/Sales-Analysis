@@ -26,7 +26,7 @@ config = {
 async def handler(
     request: ApiRequest[dict[str, Any]], ctx: FlowContext[Any]
 ) -> ApiResponse[Any]:
-    from step_services import receive_query_response
+    from modules.utilities.step_services import receive_query_response
 
     status, body = await receive_query_response(request.body or {}, ctx)
     return ApiResponse(status=status, body=body)

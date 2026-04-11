@@ -23,7 +23,7 @@ config = {
 
 
 async def handler(request: ApiRequest[Any], ctx: FlowContext[Any]) -> ApiResponse[Any]:
-    from step_services import schema_response
+    from modules.utilities.step_services import schema_response
 
     status, body = await schema_response(request, ctx)
     return ApiResponse(status=status, body=body)
