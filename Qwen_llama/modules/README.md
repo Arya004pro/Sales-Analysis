@@ -9,6 +9,9 @@ This folder contains non-UI orchestration and business logic extracted from Moti
   - Contains extracted implementations for:
     - parse intent
     - text-to-SQL
+    - execute query
+    - forecast projection
+    - anomaly detection
     - result formatting
 
 - `reporting/`
