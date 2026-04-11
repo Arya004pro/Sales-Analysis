@@ -1,4 +1,4 @@
-"""Thin step wrapper for Business Report Run stage."""
+"""Thin step wrapper for consolidated API Router."""
 
 import os
 import sys
@@ -10,4 +10,4 @@ for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from modules.reporting.business_report_run_module import config, handler
+from modules.utilities.api_router_module import config, handler

@@ -1,18 +1,17 @@
-"""Step 1: Receive Query - HTTP entry point."""
+"""Thin step wrapper for Receive Query stage."""
 
 import os
 import sys
 from typing import Any
 
+from motia import ApiRequest, ApiResponse, FlowContext, http
+
 _STEPS_DIR = os.path.dirname(os.path.abspath(__file__))
 _MOTIA_DIR = os.path.dirname(_STEPS_DIR)
 _PROJECT_ROOT = os.path.dirname(_MOTIA_DIR)
-for _p in [_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT]:
+for _p in (_STEPS_DIR, _MOTIA_DIR, _PROJECT_ROOT):
     if _p not in sys.path:
         sys.path.insert(0, _p)
-
-from motia import ApiRequest, ApiResponse, FlowContext, http
-
 
 config = {
     "name": "QueryIntake",
