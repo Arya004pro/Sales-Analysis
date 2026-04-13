@@ -181,6 +181,12 @@ def build_llm_prompt(user_query: str, parsed: dict, schema: str) -> str:
         rank_instr = (
             f"Only entities present in BOTH periods. ORDER BY value DESC LIMIT {top_n}"
         )
+    elif qt == "retention":
+        rank_instr = (
+            "Two-period cohort retention. Build DISTINCT entity cohorts for period 1 and period 2, "
+            "then compute retention percentage as (returned_count * 100.0) / cohort_count. "
+            "Return a single scalar column aliased as value. No LIMIT."
+        )
     elif qt == "zero_filter":
         rank_instr = "Entities where metric = 0 or no rows in period. ORDER BY name"
     else:

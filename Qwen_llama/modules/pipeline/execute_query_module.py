@@ -520,7 +520,10 @@ def _build_params(sql: str, parsed: dict) -> tuple:
         d = _d(end_str)
         return _exclusive_end(d) if uses_exclusive else d
 
-    if qt in ("comparison", "growth_ranking", "intersection") and len(trs) >= 2:
+    if (
+        qt in ("comparison", "growth_ranking", "intersection", "retention")
+        and len(trs) >= 2
+    ):
         s1 = _d(trs[0]["start"])
         e1 = _end(trs[0]["end"])
         s2 = _d(trs[1]["start"])

@@ -14,6 +14,7 @@ import sys
 import re
 import json
 import time
+import calendar
 from datetime import datetime, timezone
 from typing import Any
 
@@ -77,7 +78,7 @@ Schema:
 {schema}
 
 Output schema (all fields required):
-{{"entity":string|null,"metric":string,"query_type":one of [top_n,bottom_n,aggregate,threshold,comparison,growth_ranking,intersection,zero_filter,time_series,forecast],"time_bucket":one of [month,week,quarter,year,day]|null,"forecast_periods":integer(default 3),"forecast_method":one of [auto,holt,linear,sma]|null,"top_n":integer(default 5),"time_ranges":[{{"start":"YYYY-MM-DD","end":"YYYY-MM-DD","label":string}}],"threshold":{{"value":number,"type":absolute|percentage,"operator":gt|lt}}|null,"filters":object,"is_complete":boolean,"clarification_question":string|null}}
+{{"entity":string|null,"metric":string,"query_type":one of [top_n,bottom_n,aggregate,threshold,comparison,growth_ranking,intersection,zero_filter,time_series,forecast,retention],"time_bucket":one of [month,week,quarter,year,day]|null,"forecast_periods":integer(default 3),"forecast_method":one of [auto,holt,linear,sma]|null,"top_n":integer(default 5),"time_ranges":[{{"start":"YYYY-MM-DD","end":"YYYY-MM-DD","label":string}}],"threshold":{{"value":number,"type":absolute|percentage,"operator":gt|lt}}|null,"filters":object,"is_complete":boolean,"clarification_question":string|null}}
 
 Rules:
 1) Use semantic terms from Semantic Layer/Metric mappings; resolver maps later.
@@ -89,6 +90,7 @@ Rules:
 7) Inject mandatory validity filters from schema (is_cancelled/is_deleted/is_refunded/status completed etc).
 8) Completeness: ranked queries need entity+time_ranges; aggregate/time_series/forecast need metric+time_ranges; ask one critical clarification only.
 9) Time ranges: parse absolute/relative periods; use full boundaries (year/quarter/month) and two ranges for comparison/YoY.
+10) Retention/cohort asks (returned/retained from period A to B) => query_type=retention with entity and two time_ranges.
 """
 
 _TOPN_RE = re.compile(r"\b(top|bottom)\s+(\d+)\b", re.IGNORECASE)
@@ -149,6 +151,20 @@ _FORECAST_KEYWORDS = {
     "will be",
     "going to be",
 }
+
+_RETENTION_KEYWORDS = (
+    "retention",
+    "retained",
+    "returning",
+    "returned",
+    "came back",
+    "back again",
+    "repeat customer",
+    "repeat customers",
+    "repeat user",
+    "repeat users",
+    "cohort",
+)
 
 _ALL_TIME_YEARLY_HINTS = {
     "each year",
@@ -291,6 +307,10 @@ _EXPLICIT_NEW_INTENT_CUES = (
     "trend",
     "over time",
     "time series",
+    "retention",
+    "cohort",
+    "returned",
+    "returning",
 )
 
 
@@ -929,6 +949,11 @@ def _is_aov_intent(query: str) -> bool:
 
 def _default_clarification(parsed: dict) -> str:
     qt = parsed.get("query_type", "top_n")
+    if qt == "retention":
+        return (
+            "Please specify the cohort entity and two periods for retention "
+            "(for example: March customers returned in April)."
+        )
     if qt in ("aggregate", "time_series", "forecast"):
         return "What time period should I use? (e.g. 2024, Q1 2024, March 2024)"
     if not parsed.get("entity"):
@@ -975,6 +1000,39 @@ def _is_trend_query(query: str) -> bool:
 def _is_forecast_query(query: str) -> bool:
     q = (query or "").lower()
     return any(kw in q for kw in _FORECAST_KEYWORDS)
+
+
+def _is_retention_query(query: str) -> bool:
+    q = (query or "").lower()
+    has_retention_word = any(kw in q for kw in _RETENTION_KEYWORDS)
+    has_period_link = any(kw in q for kw in (" in ", " to ", " from ", " vs "))
+    has_actor = any(
+        kw in q
+        for kw in (
+            "customer",
+            "customers",
+            "user",
+            "users",
+            "buyer",
+            "buyers",
+            "client",
+            "clients",
+            "member",
+            "members",
+            "account",
+            "accounts",
+            "driver",
+            "drivers",
+            "vendor",
+            "vendors",
+            "merchant",
+            "merchants",
+            "seller",
+            "sellers",
+        )
+    )
+    has_percent = "%" in q or "percent" in q or "percentage" in q or "rate" in q
+    return has_retention_word and (has_actor or has_percent or has_period_link)
 
 
 def _detect_forecast_bucket(query: str) -> str:
@@ -1041,6 +1099,63 @@ def _extract_forecast_periods(query: str, bucket: str = "month") -> int:
             return 365
         return 1
     return 3
+
+
+def _extract_two_month_ranges_for_retention(query: str) -> list[dict]:
+    """Infer two month periods from phrasing like 'March customers returned in April 2024'."""
+    q = (query or "").lower()
+    month_map = {
+        "january": 1,
+        "february": 2,
+        "march": 3,
+        "april": 4,
+        "may": 5,
+        "june": 6,
+        "july": 7,
+        "august": 8,
+        "september": 9,
+        "october": 10,
+        "november": 11,
+        "december": 12,
+    }
+
+    hits: list[tuple[int, int | None]] = []
+    for m in re.finditer(
+        r"\b(january|february|march|april|may|june|july|august|september|october|november|december)\b\s*(\d{4})?",
+        q,
+        flags=re.IGNORECASE,
+    ):
+        mname = (m.group(1) or "").lower()
+        year_raw = m.group(2)
+        month_num = month_map.get(mname)
+        if not month_num:
+            continue
+        year_num = int(year_raw) if year_raw else None
+        hits.append((month_num, year_num))
+
+    if len(hits) < 2:
+        return []
+
+    fallback_year = next((y for _, y in hits if y), datetime.now().year)
+    normalized: list[tuple[int, int]] = []
+    for month_num, year_num in hits:
+        y = year_num or fallback_year
+        if (month_num, y) not in normalized:
+            normalized.append((month_num, y))
+        if len(normalized) >= 2:
+            break
+
+    if len(normalized) < 2:
+        return []
+
+    out: list[dict] = []
+    for month_num, year_num in normalized[:2]:
+        last_day = calendar.monthrange(year_num, month_num)[1]
+        start = f"{year_num:04d}-{month_num:02d}-01"
+        end = f"{year_num:04d}-{month_num:02d}-{last_day:02d}"
+        label = f"{datetime(year_num, month_num, 1).strftime('%B')} {year_num}"
+        out.append({"start": start, "end": end, "label": label})
+    return out
 
 
 def _parse_scaled_number(num_text: str, suffix: str = "") -> float | None:
@@ -1140,6 +1255,8 @@ def _is_explicit_new_intent_query(query: str) -> bool:
     if _has_ranking_cue(query):
         return True
     if _is_trend_query(query) or _is_forecast_query(query):
+        return True
+    if _is_retention_query(query):
         return True
     if any(cue in q for cue in _EXPLICIT_NEW_INTENT_CUES):
         return True
@@ -1265,45 +1382,74 @@ def _infer_entity_from_grouping_cue(
     return best[1] if best else None
 
 
+def _singularize_token(token: str) -> str:
+    t = (token or "").lower().strip()
+    if len(t) <= 3:
+        return t
+    if t.endswith("ies") and len(t) > 4:
+        return t[:-3] + "y"
+    if t.endswith("s") and not t.endswith("ss"):
+        return t[:-1]
+    return t
+
+
 def _infer_entity_from_query_terms(
     user_query: str,
     entity_map: list[tuple[str, str]],
 ) -> str | None:
     q = (user_query or "").lower()
-    query_terms = {
-        t
-        for t in re.findall(r"[a-z][a-z0-9_]+", q)
-        if len(t) >= 3
-        and t
-        not in {
-            "top",
-            "bottom",
-            "highest",
-            "lowest",
-            "most",
-            "least",
-            "show",
-            "list",
-            "give",
-            "with",
-            "from",
-            "into",
-            "over",
-            "trend",
-            "time",
-            "year",
-            "month",
-            "week",
-            "day",
-            "quarter",
-            "total",
-            "average",
-            "count",
-            "number",
-            "records",
-            "values",
-        }
+    stop_terms = {
+        "top",
+        "bottom",
+        "highest",
+        "lowest",
+        "most",
+        "least",
+        "show",
+        "list",
+        "give",
+        "with",
+        "from",
+        "into",
+        "over",
+        "trend",
+        "time",
+        "year",
+        "month",
+        "week",
+        "day",
+        "quarter",
+        "total",
+        "average",
+        "count",
+        "number",
+        "records",
+        "values",
+        "value",
+        "metric",
     }
+    query_terms: set[str] = set()
+    for t in re.findall(r"[a-z][a-z0-9_]+", q):
+        if len(t) < 3 or t in stop_terms:
+            continue
+        query_terms.add(t)
+        query_terms.add(_singularize_token(t))
+
+    # Ranking phrasing often puts the intended split dimension right after
+    # "top N" / "bottom N" (e.g. "top 5 categories by quantity").
+    m_rank = re.search(
+        r"\b(?:top|bottom)\s+\d+\s+([a-z][a-z0-9]*(?:\s+[a-z][a-z0-9]*){0,4})",
+        q,
+    )
+    if m_rank:
+        phrase = (m_rank.group(1) or "").strip()
+        phrase = re.split(r"\b(?:by|for|with|in|of)\b", phrase, maxsplit=1)[0].strip()
+        for t in re.findall(r"[a-z][a-z0-9_]+", phrase):
+            if len(t) < 3 or t in stop_terms:
+                continue
+            query_terms.add(t)
+            query_terms.add(_singularize_token(t))
+
     if not query_terms:
         return None
 
@@ -1311,11 +1457,12 @@ def _infer_entity_from_query_terms(
     for kw, col in entity_map:
         k = (kw or "").lower().replace("_", " ").strip()
         c = (col or "").lower().replace("_", " ").strip()
-        tokens = {
-            t
-            for t in re.findall(r"[a-z][a-z0-9]+", f"{k} {c}")
-            if len(t) >= 3 and t not in {"name", "type", "status", "code", "id"}
-        }
+        tokens: set[str] = set()
+        for t in re.findall(r"[a-z][a-z0-9]+", f"{k} {c}"):
+            if len(t) < 3 or t in {"name", "type", "status", "code", "id"}:
+                continue
+            tokens.add(t)
+            tokens.add(_singularize_token(t))
         if not tokens:
             continue
 
@@ -1333,6 +1480,43 @@ def _infer_entity_from_query_terms(
             best = (score, col)
 
     return best[1] if best else None
+
+
+def _infer_retention_entity(
+    user_query: str,
+    entity_map: list[tuple[str, str]],
+) -> str | None:
+    inferred = _infer_entity_from_grouping_cue(user_query, entity_map)
+    if inferred:
+        return inferred
+
+    inferred = _infer_entity_from_query_terms(user_query, entity_map)
+    if inferred:
+        return inferred
+
+    q = (user_query or "").lower()
+    actor_tokens = (
+        "customer",
+        "user",
+        "buyer",
+        "client",
+        "member",
+        "account",
+        "driver",
+        "vendor",
+        "merchant",
+        "seller",
+    )
+
+    for token in actor_tokens:
+        if token not in q:
+            continue
+        for kw, col in entity_map:
+            kk = (kw or "").lower()
+            cc = (col or "").lower()
+            if token in kk or token in cc:
+                return col
+    return None
 
 
 # ── Schema-aware fallback parser ──────────────────────────────────────────────
@@ -1474,6 +1658,19 @@ def _post_process(
             current_filters[fk] = fv
         parsed["filters"] = current_filters
 
+    if _is_retention_query(user_query):
+        parsed["query_type"] = "retention"
+        parsed["metric"] = "retention_rate"
+        parsed["semantic_metric"] = "retention_rate"
+        if not parsed.get("entity"):
+            entity_map_ret, _ = _get_schema_maps()
+            inferred_retention_entity = _infer_retention_entity(
+                user_query, entity_map_ret
+            )
+            if inferred_retention_entity:
+                parsed["entity"] = inferred_retention_entity
+        qt = "retention"
+
     if (
         parsed.get("metric") == "aov"
         and qt in ("top_n", "bottom_n")
@@ -1484,7 +1681,11 @@ def _post_process(
         parsed["entity"] = None
         qt = "aggregate"
 
-    if any(c in ql for c in growth_cues) and not _is_trend_query(user_query):
+    if (
+        qt != "retention"
+        and any(c in ql for c in growth_cues)
+        and not _is_trend_query(user_query)
+    ):
         entity_growth_phrase = bool(parsed.get("entity")) or " by " in f" {ql} "
         if entity_growth_phrase and qt != "intersection":
             parsed["query_type"] = "growth_ranking"
@@ -1531,7 +1732,7 @@ def _post_process(
             if inferred_entity:
                 parsed["entity"] = inferred_entity
 
-    if _is_forecast_query(user_query) and not ranking_cue:
+    if _is_forecast_query(user_query) and not ranking_cue and qt != "retention":
         parsed["query_type"] = "forecast"
         parsed["entity"] = None
         parsed["time_bucket"] = _detect_forecast_bucket(user_query)
@@ -1545,6 +1746,7 @@ def _post_process(
     if (
         _is_trend_query(user_query)
         and not ranking_cue
+        and qt != "retention"
         and qt not in ("time_series", "forecast")
         and not (split_cue and parsed.get("entity"))
     ):
@@ -1591,7 +1793,7 @@ def _post_process(
             if (
                 suggested_qt == "comparison"
                 and parsed.get("query_type")
-                not in ("comparison", "growth_ranking", "intersection")
+                not in ("comparison", "growth_ranking", "intersection", "retention")
                 and not (
                     split_cue and parsed.get("entity") and parsed.get("_disable_limit")
                 )
@@ -1604,7 +1806,13 @@ def _post_process(
                 parsed["time_ranges"] = inferred
                 tr = inferred
 
-    if not tr and qt not in ("comparison", "intersection"):
+    if qt == "retention" and len(tr) < 2:
+        retention_ranges = _extract_two_month_ranges_for_retention(user_query)
+        if len(retention_ranges) >= 2:
+            parsed["time_ranges"] = retention_ranges[:2]
+            tr = parsed["time_ranges"]
+
+    if not tr and qt not in ("comparison", "intersection", "retention"):
         inferred = _infer_dataset_time_range()
         if inferred:
             parsed["time_ranges"] = inferred
@@ -1714,6 +1922,20 @@ def _post_process(
     if qt in ("aggregate", "time_series", "forecast") and m and tr:
         parsed["is_complete"] = True
         parsed["clarification_question"] = None
+    if qt == "retention":
+        if (
+            parsed.get("entity")
+            and len(tr) >= 2
+            and _period_key(tr[0]) != _period_key(tr[1])
+        ):
+            parsed["is_complete"] = True
+            parsed["clarification_question"] = None
+        else:
+            parsed["is_complete"] = False
+            parsed["clarification_question"] = (
+                "Please provide the cohort entity and two different periods "
+                "for retention (for example: March customers returned in April)."
+            )
     if qt in ("comparison", "intersection"):
         if m and len(tr) >= 2 and _period_key(tr[0]) != _period_key(tr[1]):
             parsed["is_complete"] = True
@@ -1851,6 +2073,11 @@ def _check_clarity(parsed: dict) -> tuple[bool, str | None]:
 
     if qt in ("aggregate", "time_series", "forecast"):
         if m and tr:
+            return True, None
+        return False, cq or _default_clarification(parsed)
+
+    if qt == "retention":
+        if ent and tr and len(tr) >= 2 and _period_key(tr[0]) != _period_key(tr[1]):
             return True, None
         return False, cq or _default_clarification(parsed)
 

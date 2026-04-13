@@ -431,12 +431,25 @@ async def run_format_result(
 
     elif is_scalar:
         v = results[0]["value"]
-        period_str = (
-            _period_phrase if _period_phrase else f"between {start_date} and {end_date}"
-        )
-        val_s = _fmt_indian(v, p)
-        formatted_text = f"Total {mlabel} {period_str} is {val_s}"
-        items = [{"label": f"Total {mlabel}", "value": val_s}]
+        if qt == "retention":
+            p1 = period_labels[0] if len(period_labels) > 0 else "Period 1"
+            p2 = period_labels[1] if len(period_labels) > 1 else "Period 2"
+            try:
+                pct_v = float(v or 0.0)
+            except Exception:
+                pct_v = 0.0
+            val_s = f"{pct_v:.2f}%"
+            formatted_text = f"Customer retention from {p1} to {p2} is {val_s}"
+            items = [{"label": "Retention rate", "value": val_s}]
+        else:
+            period_str = (
+                _period_phrase
+                if _period_phrase
+                else f"between {start_date} and {end_date}"
+            )
+            val_s = _fmt_indian(v, p)
+            formatted_text = f"Total {mlabel} {period_str} is {val_s}"
+            items = [{"label": f"Total {mlabel}", "value": val_s}]
 
     elif has_delta:
         p1 = period_labels[0] if len(period_labels) > 0 else "Period 1"

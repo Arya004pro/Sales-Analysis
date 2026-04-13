@@ -5,7 +5,6 @@ steps remain thin request/response adapters.
 """
 
 from __future__ import annotations
-
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -15,6 +14,9 @@ from db.schema_view import build_schema_view_payload, normalize_view_mode
 
 
 _SESSIONS_NS = "query_sessions"
+_QUERY_INDEX_NS = "query_index"
+_QUERY_INDEX_KEY = "recent"
+_QUERY_INDEX_MAX = 500
 
 
 def query_param(request: Any, key: str, default: str = "") -> str:
@@ -27,6 +29,67 @@ def query_param(request: Any, key: str, default: str = "") -> str:
 
 def _new_query_id(now: datetime) -> str:
     return f"Q-{int(now.timestamp() * 1000)}-{uuid.uuid4().hex[:6]}"
+
+
+def _parse_positive_int(raw: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return default
+    return max(minimum, min(maximum, value))
+
+
+async def _touch_query_index(ctx: Any, query_id: str, now_iso: str) -> None:
+    if not query_id:
+        return
+
+    try:
+        existing = await ctx.state.get(_QUERY_INDEX_NS, _QUERY_INDEX_KEY) or {}
+        ids = [
+            str(qid)
+            for qid in (existing.get("ids") or [])
+            if isinstance(qid, str) and qid.strip()
+        ]
+        ids = [qid for qid in ids if qid != query_id]
+        ids.append(query_id)
+        ids = ids[-_QUERY_INDEX_MAX:]
+
+        await ctx.state.set(
+            _QUERY_INDEX_NS,
+            _QUERY_INDEX_KEY,
+            {
+                "ids": ids,
+                "updatedAt": now_iso,
+            },
+        )
+    except Exception as exc:
+        ctx.logger.warn("Failed to update query index", {"error": str(exc)})
+
+
+async def _list_recent_queries_from_index(
+    ctx: Any,
+    limit: int,
+) -> tuple[list[dict[str, Any]], int]:
+    existing = await ctx.state.get(_QUERY_INDEX_NS, _QUERY_INDEX_KEY) or {}
+    ids = [
+        str(qid)
+        for qid in (existing.get("ids") or [])
+        if isinstance(qid, str) and qid.strip()
+    ]
+    if not ids:
+        return [], 0
+
+    recent_ids = list(reversed(ids))
+    queries: list[dict[str, Any]] = []
+
+    for query_id in recent_ids:
+        query_state = await ctx.state.get("queries", query_id)
+        if isinstance(query_state, dict):
+            queries.append(query_state)
+            if len(queries) >= limit:
+                break
+
+    return queries, len(ids)
 
 
 async def _resolve_session_context(
@@ -134,6 +197,7 @@ async def receive_query_response(
                 "status_timestamps": {"received": now_iso},
             },
         )
+        await _touch_query_index(ctx, query_id, now_iso)
         await _upsert_session(ctx, session_id, query_id, now_iso)
 
         await ctx.enqueue(
@@ -177,6 +241,7 @@ async def receive_query_response(
                 "status_timestamps": {**prev_ts, "received": now_iso},
             },
         )
+        await _touch_query_index(ctx, query_id, now_iso)
         await _upsert_session(ctx, session_id, query_id, now_iso)
 
         await ctx.enqueue(
@@ -221,6 +286,7 @@ async def receive_query_response(
             "status_timestamps": {"received": now_iso},
         },
     )
+    await _touch_query_index(ctx, query_id, now_iso)
     await _upsert_session(ctx, session_id, query_id, now_iso)
 
     enqueue_data: dict[str, Any] = {"queryId": query_id, "query": user_query}
@@ -324,13 +390,40 @@ async def get_query_result_response(
     return 200, query_state
 
 
-async def list_queries_response(ctx: Any) -> tuple[int, dict[str, Any]]:
-    queries = await ctx.state.list("queries")
-    ctx.logger.info("Listing all queries", {"count": len(queries)})
-    return 200, {
-        "queries": queries,
-        "count": len(queries),
-    }
+async def list_queries_response(
+    request: Any,
+    ctx: Any,
+) -> tuple[int, dict[str, Any]]:
+    limit = _parse_positive_int(
+        query_param(request, "limit", "20"),
+        default=20,
+        minimum=1,
+        maximum=100,
+    )
+
+    try:
+        queries, total = await _list_recent_queries_from_index(ctx, limit)
+        ctx.logger.info(
+            "Listing queries from index",
+            {"count": len(queries), "total": total, "limit": limit},
+        )
+        return 200, {
+            "queries": queries,
+            "count": len(queries),
+            "total": total,
+            "limit": limit,
+            "source": "index",
+        }
+    except Exception as exc:
+        ctx.logger.error("Index listing failed", {"error": str(exc)})
+        return 200, {
+            "queries": [],
+            "count": 0,
+            "total": 0,
+            "limit": limit,
+            "source": "index-unavailable",
+            "warning": "No indexed queries yet. Submit a new query and try again.",
+        }
 
 
 def normalize_report_period(raw: str, allow_both: bool = False) -> str:

@@ -30,12 +30,12 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 # Reasoning controls for Qwen. Reasoning is hidden from user output because
 # downstream steps strip <think> blocks before parsing/formatting.
 QWEN_ENABLE_REASONING = os.getenv("QWEN_ENABLE_REASONING", "1") == "1"
-QWEN_REASONING_EFFORT = os.getenv("QWEN_REASONING_EFFORT", "medium")
+QWEN_REASONING_EFFORT = os.getenv("QWEN_REASONING_EFFORT", "low")
 
 try:
-    PARSE_INTENT_MAX_RETRIES = max(1, int(os.getenv("PARSE_INTENT_MAX_RETRIES", "2")))
+    PARSE_INTENT_MAX_RETRIES = max(1, int(os.getenv("PARSE_INTENT_MAX_RETRIES", "1")))
 except ValueError:
-    PARSE_INTENT_MAX_RETRIES = 2
+    PARSE_INTENT_MAX_RETRIES = 1
 
 PARSE_INTENT_USE_INSTRUCTOR = os.getenv("PARSE_INTENT_USE_INSTRUCTOR", "1") == "1"
 

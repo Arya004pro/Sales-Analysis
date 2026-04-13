@@ -20,7 +20,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3121/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:3121/_console/health"]
       interval: 10s
       timeout: 5s
       retries: 5

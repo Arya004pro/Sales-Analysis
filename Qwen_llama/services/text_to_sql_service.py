@@ -80,6 +80,16 @@ async def run_text_to_sql(
                 "✅ Deterministic rank-within-time SQL built", {"queryId": query_id}
             )
 
+    if generated_sql is None and qt == "retention":
+        fb = step._deterministic_retention_fallback(parsed, user_query)
+        if fb:
+            generated_sql = fb
+            fallback_used = True
+            sql_source = "deterministic_retention_fallback"
+            ctx.logger.info(
+                "✅ Deterministic retention SQL built", {"queryId": query_id}
+            )
+
     if generated_sql is None and qt in ("comparison", "growth_ranking", "intersection"):
         fb = step._deterministic_comparison_fallback(parsed)
         if fb:

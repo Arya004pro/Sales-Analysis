@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from typing import Any
 
@@ -62,6 +63,101 @@ def _path_has(path: str, token: str) -> bool:
     return token in (path or "")
 
 
+_TRIGGER_ROUTE_MAP: dict[int, tuple[str, str]] = {
+    0: ("POST", "/ingest"),
+    1: ("GET", "/schema"),
+    2: ("GET", "/queries"),
+    3: ("GET", "/query/"),
+    4: ("GET", "/query/chart"),
+    5: ("GET", "/discover"),
+    6: ("GET", "/suggestions"),
+    7: ("GET", "/reports/latest"),
+    8: ("POST", "/reports/run"),
+}
+
+
+def _extract_trigger_index(request: Any, ctx: Any) -> int | None:
+    trigger_obj = getattr(ctx, "trigger", None)
+    trigger_idx = getattr(trigger_obj, "index", None)
+    if isinstance(trigger_idx, int):
+        return trigger_idx
+
+    probe_values: list[str] = []
+
+    def _collect(obj: Any) -> None:
+        for attr in (
+            "function_id",
+            "fn_id",
+            "trigger_id",
+            "invocation_id",
+            "handler_id",
+            "route_id",
+            "id",
+            "name",
+        ):
+            val = getattr(obj, attr, None)
+            if isinstance(val, str) and val:
+                probe_values.append(val)
+
+    _collect(request)
+    _collect(ctx)
+
+    headers = getattr(request, "headers", None)
+    if isinstance(headers, dict):
+        for k, v in headers.items():
+            if isinstance(k, str):
+                probe_values.append(k)
+            if isinstance(v, str):
+                probe_values.append(v)
+
+    probe_values.extend([repr(request), repr(ctx)])
+
+    for text in probe_values:
+        m = re.search(r"trigger::(\d+)", text)
+        if m:
+            try:
+                return int(m.group(1))
+            except ValueError:
+                continue
+    return None
+
+
+def _request_debug_snapshot(request: Any, ctx: Any) -> dict[str, Any]:
+    snap: dict[str, Any] = {}
+    for attr in (
+        "method",
+        "path",
+        "url",
+        "route",
+        "raw_path",
+        "endpoint",
+        "trigger_id",
+        "function_id",
+        "handler_id",
+        "path_params",
+        "query",
+        "query_params",
+        "params",
+        "headers",
+    ):
+        try:
+            val = getattr(request, attr, None)
+            if isinstance(val, (str, int, float, bool)) or val is None:
+                snap[attr] = val
+            elif isinstance(val, dict):
+                snap[attr] = {str(k): str(v) for k, v in list(val.items())[:12]}
+            else:
+                snap[attr] = str(val)
+        except Exception:
+            snap[attr] = "<unavailable>"
+
+    try:
+        snap["ctx_repr"] = str(ctx)
+    except Exception:
+        snap["ctx_repr"] = "<unavailable>"
+    return snap
+
+
 async def _handle_post(
     request: ApiRequest[Any],
     ctx: FlowContext[Any],
@@ -116,7 +212,7 @@ async def _handle_get(
         return ApiResponse(status=status, body=payload)
 
     if _path_has(path, "/queries") and not _path_has(path, "/query/"):
-        status, payload = await list_queries_response(ctx)
+        status, payload = await list_queries_response(request, ctx)
         return ApiResponse(status=status, body=payload)
 
     if (_path_has(path, "/query/") and _path_has(path, "/chart")) or (
@@ -135,10 +231,61 @@ async def _handle_get(
 async def handler(request: ApiRequest[Any], ctx: FlowContext[Any]) -> ApiResponse[Any]:
     method = str(getattr(request, "method", "")).upper()
     path = _request_path(request)
+    trigger_idx = _extract_trigger_index(request, ctx)
+
+    trigger_obj = getattr(ctx, "trigger", None)
+    trigger_method = str(getattr(trigger_obj, "method", "") or "").upper()
+    trigger_path = str(getattr(trigger_obj, "path", "") or "").lower()
+    if not method and trigger_method:
+        method = trigger_method
+    if not path and trigger_path:
+        path = trigger_path
+
+    # Runtime fallback: some trigger invocations may omit method/path on request,
+    # but still include trigger metadata that identifies the configured endpoint.
+    if (not method or not path) and request is not None:
+        if trigger_idx is not None and trigger_idx in _TRIGGER_ROUTE_MAP:
+            inferred_method, inferred_path = _TRIGGER_ROUTE_MAP[trigger_idx]
+            if not method:
+                method = inferred_method
+            if not path:
+                path = inferred_path
 
     if method == "POST":
         return await _handle_post(request, ctx, path)
     if method == "GET":
         return await _handle_get(request, ctx, path)
+
+    # Some runtimes may not populate request.method reliably for HTTP triggers.
+    # Infer intent from endpoint path/payload so utility APIs still work.
+    if _path_has(path, "/ingest") or _path_has(path, "/reports/run"):
+        return await _handle_post(request, ctx, path)
+
+    known_get_paths = (
+        "/schema",
+        "/queries",
+        "/query/",
+        "/discover",
+        "/suggestions",
+        "/reports/latest",
+    )
+    if any(_path_has(path, token) for token in known_get_paths):
+        return await _handle_get(request, ctx, path)
+
+    body = request.body if isinstance(getattr(request, "body", None), dict) else {}
+    if any(k in body for k in ("files", "discover_files", "period", "requestedBy")):
+        return await _handle_post(request, ctx, path)
+    if path:
+        return await _handle_get(request, ctx, path)
+
+    ctx.logger.warn(
+        "ApiRouter unresolved request",
+        {
+            "method": method,
+            "path": path,
+            "trigger_idx": trigger_idx,
+            "request": _request_debug_snapshot(request, ctx),
+        },
+    )
 
     return ApiResponse(status=405, body={"error": "Method not allowed"})

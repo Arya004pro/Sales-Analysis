@@ -30,27 +30,29 @@ _MODEL_CONTEXT: dict[str, int] = {
 }
 
 _TASK_CEILINGS: dict[str, int] = {
-    "parse_intent": 512,
-    "text_to_sql": 1024,
-    "sql_repair": 768,
+    "parse_intent": 320,
+    "text_to_sql": 700,
+    "sql_repair": 520,
     "schema_map": 256,
-    "insights": 300,
+    "insights": 180,
     "ambiguity": 128,
 }
 
 _TASK_MINIMUMS: dict[str, int] = {
-    "parse_intent": 150,
-    "text_to_sql": 200,
-    "sql_repair": 200,
+    "parse_intent": 90,
+    "text_to_sql": 140,
+    "sql_repair": 120,
     "schema_map": 100,
-    "insights": 150,
+    "insights": 80,
     "ambiguity": 60,
 }
 
 
 def estimate_prompt_tokens(prompt: str | list[dict]) -> int:
     if isinstance(prompt, list):
-        text = " ".join(str(m.get("content", "")) for m in prompt if isinstance(m, dict))
+        text = " ".join(
+            str(m.get("content", "")) for m in prompt if isinstance(m, dict)
+        )
     else:
         text = str(prompt)
     return max(1, int(len(text) / _CHARS_PER_TOKEN))
@@ -65,7 +67,9 @@ def calc_max_tokens(
     model_key = model
     if model_key not in _MODEL_CONTEXT:
         short = model.split("/")[-1] if "/" in model else model
-        model_key = next((k for k in _MODEL_CONTEXT if short in k or k in short), "default")
+        model_key = next(
+            (k for k in _MODEL_CONTEXT if short in k or k in short), "default"
+        )
 
     context_window = _MODEL_CONTEXT[model_key]
     prompt_tokens = estimate_prompt_tokens(prompt)
@@ -77,6 +81,7 @@ def calc_max_tokens(
 
 # ─── helpers ────────────────────────────────────────────────────────────────
 
+
 def _safe_int(val) -> int:
     try:
         return int(val or 0)
@@ -85,41 +90,45 @@ def _safe_int(val) -> int:
 
 
 def _build_entry(step: str, model: str, usage: dict) -> dict:
-    prompt     = _safe_int(usage.get("prompt_tokens"))
+    prompt = _safe_int(usage.get("prompt_tokens"))
     completion = _safe_int(usage.get("completion_tokens"))
-    total      = _safe_int(usage.get("total_tokens")) or prompt + completion
-    is_llm     = model not in ("rule_based", "adaptive_rule")
+    total = _safe_int(usage.get("total_tokens")) or prompt + completion
+    is_llm = model not in ("rule_based", "adaptive_rule")
     return {
-        "step":             step,
-        "model":            model,
-        "prompt_tokens":    prompt,
-        "completion_tokens":completion,
-        "total_tokens":     total,
-        "is_llm":           is_llm,
+        "step": step,
+        "model": model,
+        "prompt_tokens": prompt,
+        "completion_tokens": completion,
+        "total_tokens": total,
+        "is_llm": is_llm,
     }
 
 
 # ─── Motia step helpers ──────────────────────────────────────────────────────
 
+
 def log_tokens(ctx: Any, query_id: str, step: str, model: str, usage: dict) -> None:
     """Emit a structured token-usage log line through the Motia logger."""
     entry = _build_entry(step, model, usage)
-    ctx.logger.info("🪙 Token usage", {
-        "queryId":           query_id,
-        "step":              entry["step"],
-        "model":             entry["model"],
-        "prompt_tokens":     entry["prompt_tokens"],
-        "completion_tokens": entry["completion_tokens"],
-        "total_tokens":      entry["total_tokens"],
-    })
+    ctx.logger.info(
+        "🪙 Token usage",
+        {
+            "queryId": query_id,
+            "step": entry["step"],
+            "model": entry["model"],
+            "prompt_tokens": entry["prompt_tokens"],
+            "completion_tokens": entry["completion_tokens"],
+            "total_tokens": entry["total_tokens"],
+        },
+    )
 
 
 async def add_tokens_to_state(
-    ctx:      Any,
+    ctx: Any,
     query_id: str,
-    step:     str,
-    model:    str,
-    usage:    dict,
+    step: str,
+    model: str,
+    usage: dict,
 ) -> None:
     """
     Append a token-usage entry to the query's state and keep a running total.
@@ -138,32 +147,38 @@ async def add_tokens_to_state(
     if not query_state:
         return
 
-    entry    = _build_entry(step, model, usage)
+    entry = _build_entry(step, model, usage)
     log_list = list(query_state.get("token_usage", []))
     log_list.append(entry)
 
     # Running totals
-    totals = query_state.get("token_totals", {
-        "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0
-    })
+    totals = query_state.get(
+        "token_totals", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+    )
     totals = {
-        "prompt_tokens":     totals["prompt_tokens"]     + entry["prompt_tokens"],
+        "prompt_tokens": totals["prompt_tokens"] + entry["prompt_tokens"],
         "completion_tokens": totals["completion_tokens"] + entry["completion_tokens"],
-        "total_tokens":      totals["total_tokens"]      + entry["total_tokens"],
+        "total_tokens": totals["total_tokens"] + entry["total_tokens"],
     }
 
-    await ctx.state.set("queries", query_id, {
-        **query_state,
-        "token_usage":  log_list,
-        "token_totals": totals,
-    })
+    await ctx.state.set(
+        "queries",
+        query_id,
+        {
+            **query_state,
+            "token_usage": log_list,
+            "token_totals": totals,
+        },
+    )
 
 
 # ─── Terminal (app.py) helper ────────────────────────────────────────────────
 
 # Running totals for the current terminal session query
 _session_totals: dict[str, int] = {
-    "prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0,
 }
 
 
@@ -172,9 +187,9 @@ def print_token_usage(step: str, model: str, usage: dict) -> None:
     global _session_totals
     entry = _build_entry(step, model, usage)
 
-    _session_totals["prompt_tokens"]     += entry["prompt_tokens"]
+    _session_totals["prompt_tokens"] += entry["prompt_tokens"]
     _session_totals["completion_tokens"] += entry["completion_tokens"]
-    _session_totals["total_tokens"]      += entry["total_tokens"]
+    _session_totals["total_tokens"] += entry["total_tokens"]
 
     short_model = model.split("/")[-1]
     print(

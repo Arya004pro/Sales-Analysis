@@ -884,6 +884,224 @@ def _deterministic_repeat_entity_count_fallback(
             pass
 
 
+def _deterministic_retention_fallback(parsed: dict, user_query: str) -> str | None:
+    """Build SQL for two-period cohort retention percentage."""
+    filters = parsed.get("filters", {}) or {}
+    entity_hint = (parsed.get("entity") or "").lower().strip()
+    query_l = (user_query or "").lower()
+
+    actor_tokens = (
+        "customer",
+        "user",
+        "buyer",
+        "client",
+        "member",
+        "account",
+        "driver",
+        "vendor",
+        "merchant",
+        "seller",
+        "partner",
+        "employee",
+        "agent",
+        "store",
+        "branch",
+        "warehouse",
+    )
+
+    def _is_event_col(col: str) -> bool:
+        c = col.lower()
+        return any(
+            k in c
+            for k in (
+                "order",
+                "booking",
+                "transaction",
+                "invoice",
+                "payment",
+                "trip",
+                "ride",
+                "ticket",
+                "request",
+                "session",
+                "visit",
+                "row",
+                "line",
+                "item",
+                "detail",
+                "record",
+                "event",
+                "log",
+            )
+        )
+
+    def _pick_entity_key(cols: list[tuple[str, str]]) -> str | None:
+        col_names = [c[0].lower() for c in cols]
+
+        if entity_hint:
+            if entity_hint in col_names:
+                if entity_hint.endswith("_name"):
+                    base = entity_hint[: -len("_name")]
+                    for cand in (
+                        f"{base}_id",
+                        f"{base}_key",
+                        f"{base}_code",
+                        f"{base}_uuid",
+                        base,
+                    ):
+                        if cand in col_names and not _is_event_col(cand):
+                            return cand
+                return entity_hint
+            if entity_hint.endswith("_name"):
+                base = entity_hint[: -len("_name")]
+                for cand in (
+                    f"{base}_id",
+                    f"{base}_key",
+                    f"{base}_code",
+                    f"{base}_uuid",
+                    base,
+                ):
+                    if cand in col_names and not _is_event_col(cand):
+                        return cand
+
+        best: tuple[int, str] | None = None
+        for col, dtype in cols:
+            c = col.lower()
+            d = dtype.upper()
+
+            if any(k in c for k in ("date", "time", "created", "updated", "timestamp")):
+                continue
+
+            if _is_event_col(c):
+                continue
+
+            score = 0
+            id_like = (
+                c.endswith("_id")
+                or c.endswith("_uuid")
+                or c.endswith("_key")
+                or c.endswith("_code")
+            )
+            text_like = any(t in d for t in ("VARCHAR", "CHAR", "TEXT", "STRING"))
+
+            if id_like:
+                score += 5
+            if c.endswith("_name"):
+                score += 2
+            if text_like and c.endswith("_name"):
+                score += 1
+
+            actor_hit = any(tok in c for tok in actor_tokens)
+            if actor_hit:
+                score += 8
+            if any(tok in query_l for tok in actor_tokens) and actor_hit:
+                score += 3
+
+            if c == "id":
+                score -= 2
+
+            if score > 0 and (best is None or score > best[0]):
+                best = (score, c)
+
+        return best[1] if best else None
+
+    try:
+        conn = get_read_connection()
+        table_rows = conn.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema='main' AND table_type='BASE TABLE' ORDER BY table_name"
+        ).fetchall()
+        tables = [r[0] for r in table_rows]
+    except Exception:
+        return None
+
+    try:
+        best = None
+        for t in tables:
+            try:
+                cols = [
+                    (c[0], str(c[1]).upper())
+                    for c in conn.execute(f'DESCRIBE "{t}"').fetchall()
+                ]
+            except Exception:
+                continue
+
+            col_names = [c[0].lower() for c in cols]
+            date_cols = [
+                c
+                for c, typ in cols
+                if (
+                    "DATE" in typ
+                    or "TIMESTAMP" in typ
+                    or any(
+                        k in c.lower()
+                        for k in ("date", "time", "created", "updated", "at")
+                    )
+                )
+            ]
+            if not date_cols:
+                continue
+            date_col = next((c for c in date_cols if "date" in c.lower()), date_cols[0])
+
+            entity_key = _pick_entity_key(cols)
+            if not entity_key:
+                continue
+
+            score = 0
+            if entity_hint and entity_hint in col_names:
+                score += 4
+            if any(tok in entity_key for tok in actor_tokens):
+                score += 5
+            if all((k in col_names) for k in filters.keys()):
+                score += 2
+            if any(k in date_col.lower() for k in ("date", "time", "created")):
+                score += 2
+
+            if best is None or score > best[0]:
+                best = (score, t, date_col, entity_key, set(col_names))
+
+        if not best:
+            return None
+
+        _, table, date_col, entity_key, table_cols = best
+        filter_clause = _render_filter_clause(
+            {k: v for k, v in filters.items() if k in table_cols and k != entity_key}
+        )
+        where_extra = f"\n{filter_clause}" if filter_clause else ""
+
+        return (
+            "WITH cohort AS (\n"
+            f'  SELECT DISTINCT "{entity_key}" AS entity_key\n'
+            f'  FROM "{table}"\n'
+            f'  WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ? AND "{entity_key}" IS NOT NULL{where_extra}\n'
+            "),\n"
+            "returned AS (\n"
+            f'  SELECT DISTINCT "{entity_key}" AS entity_key\n'
+            f'  FROM "{table}"\n'
+            f'  WHERE CAST("{date_col}" AS DATE) >= ? AND CAST("{date_col}" AS DATE) < ? AND "{entity_key}" IS NOT NULL{where_extra}\n'
+            "),\n"
+            "cohort_stats AS (\n"
+            "  SELECT COUNT(*) AS cohort_size FROM cohort\n"
+            "),\n"
+            "returned_stats AS (\n"
+            "  SELECT COUNT(*) AS returned_count\n"
+            "  FROM cohort c\n"
+            "  INNER JOIN returned r ON r.entity_key = c.entity_key\n"
+            ")\n"
+            "SELECT CASE\n"
+            "         WHEN cohort_stats.cohort_size = 0 THEN 0\n"
+            "         ELSE (returned_stats.returned_count * 100.0) / cohort_stats.cohort_size\n"
+            "       END AS value\n"
+            "FROM cohort_stats\n"
+            "CROSS JOIN returned_stats"
+        )
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+
+
 def _deterministic_top_percent_share_fallback(
     parsed: dict, user_query: str
 ) -> str | None:
