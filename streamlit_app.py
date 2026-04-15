@@ -1528,6 +1528,13 @@ def render_schema_section():
     - ER schema from derived tables only
     - Raw uploaded source tables in tabular view
     """
+    derived_data = fetch_schema(view="derived")
+    registry = (derived_data or {}).get("registry") or {}
+    upload_narrative = str(registry.get("upload_narrative") or "").strip()
+    if upload_narrative:
+        st.markdown("#### Smart upload narrative")
+        st.info(upload_narrative)
+
     tab_er, tab_raw = st.tabs(["ER schema (derived tables)", "Raw uploaded tables"])
 
     with tab_er:
@@ -1537,7 +1544,7 @@ def render_schema_section():
                 refresh_nonce=int(st.session_state.get("schema_refresh_nonce", 0)),
             )
         else:
-            schema_data = fetch_schema(view="derived")
+            schema_data = derived_data
             if not schema_data or not schema_data.get("tables"):
                 st.caption("No derived schema available yet.")
             else:

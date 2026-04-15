@@ -11,6 +11,7 @@ from typing import Any
 
 from db.data_ingester import ingest_files
 from db.schema_view import build_schema_view_payload, normalize_view_mode
+from services.upload_narrative_service import generate_upload_narrative
 
 
 _SESSIONS_NS = "query_sessions"
@@ -345,6 +346,10 @@ async def ingest_response(
         return 500, {"error": str(exc)}
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    narrative_bundle = generate_upload_narrative(
+        result, logger=getattr(ctx, "logger", None)
+    )
+    upload_narrative = str(narrative_bundle.get("text") or "").strip()
     await ctx.state.set(
         "schema_registry",
         "current",
@@ -354,9 +359,15 @@ async def ingest_response(
             "use_llm_grouping": use_llm_grouping,
             "auto_structure": auto_structure,
             **result,
+            "upload_narrative": upload_narrative,
+            "upload_narrative_meta": {
+                "source": narrative_bundle.get("source"),
+                "generatedAt": narrative_bundle.get("generatedAt"),
+                "profile": narrative_bundle.get("profile"),
+            },
         },
     )
-    return 200, {"ok": True, **result}
+    return 200, {"ok": True, **result, "upload_narrative": upload_narrative}
 
 
 async def schema_response(
